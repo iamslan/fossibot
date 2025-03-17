@@ -1,0 +1,16 @@
+{
+    "domain": "fossibot",
+    "name": "Fossibot",
+    "integration_type": "hub",
+    "config_flow": true,
+    "documentation": "https://www.home-assistant.io/integrations/fossibot",
+    "requirements": [
+        "paho-mqtt[websockets]>=1.6.1",
+        "websockets>=11.0.3",
+        "aiohttp>=3.8.0"
+    ],
+    "dependencies": [],
+    "codeowners": [],
+    "iot_class": "cloud_polling",
+    "version": "0.1.0"
+}
