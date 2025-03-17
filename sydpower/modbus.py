@@ -76,6 +76,9 @@ REGDisableACOutput   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUT
 REGEnableACOutput    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUTPUT, 1)
 REGDisableLED        = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 0)
 REGEnableLEDAlways   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 1)
+# Add missing LED modes from JavaScript implementation
+REGEnableLEDSOS      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 2)
+REGEnableLEDFlash    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 3)
 
 def parse_registers(registers: List[int], topic: str) -> Dict[str, Union[int, float, bool]]:
     """Parse device registers based on topic and return structured data."""
@@ -83,16 +86,26 @@ def parse_registers(registers: List[int], topic: str) -> Dict[str, Union[int, fl
     
     if len(registers) == 81:
         if 'device/response/client/04' in topic:
-            active_outputs = format(registers[41], '016b')
+            # Get register 41 value (active outputs list)
+            register_value = registers[41]
+            
+            # Replicate the JavaScript logic exactly
+            # This creates the exact same format as JS's:
+            # ("0000000000000000" + e[41].toString(2).padStart(8, "0")).slice(-16)
+            binary_str = format(register_value, '016b')
+            
             device_update.update({
                 "soc": round(registers[56] / 1000 * 100, 1),
                 "dcInput": registers[4],
                 "totalInput": registers[6],
                 "totalOutput": registers[39],
-                "usbOutput": active_outputs[9] == '1',
-                "dcOutput": active_outputs[10] == '1',
-                "acOutput": active_outputs[11] == '1',
-                "ledOutput": active_outputs[12] == '1'
+                
+                # IMPORTANT: Direct string indexing in Python is exactly the same
+                # as array indexing in JavaScript after split
+                "usbOutput": binary_str[6] == '1',   # Position 6: USB Output
+                "dcOutput": binary_str[5] == '1',    # Position 5: DC Output
+                "acOutput": binary_str[4] == '1',    # Position 4: AC Output
+                "ledOutput": binary_str[3] == '1',   # Position 3: LED Output
             })
         elif 'device/response/client/data' in topic:
             device_update.update({
