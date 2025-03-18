@@ -26,9 +26,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up Fossibot select entities."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-
+    _LOGGER.debug("Setting up Fossibot SELECT platform with coordinator")
+    
     entities = []
     for device_id, device_data in coordinator.data.items():
+        _LOGGER.debug(f"Creating LED mode select entity for device {device_id}")
         entities.append(
             FossibotLEDModeSelect(
                 coordinator,
@@ -36,7 +38,10 @@ async def async_setup_entry(
             )
         )
 
+    _LOGGER.debug(f"Adding {len(entities)} select entities")
     async_add_entities(entities)
+    _LOGGER.debug("SELECT platform setup complete")
+
 
 class FossibotLEDModeSelect(CoordinatorEntity, SelectEntity):
     """Fossibot LED mode selector."""
@@ -50,25 +55,28 @@ class FossibotLEDModeSelect(CoordinatorEntity, SelectEntity):
         super().__init__(coordinator)
         self._device_id = device_id
         self._key = "ledOutput"
-        
-        # Set proper name that includes device ID
-        # This will generate an entity_id like: select.fossibot_abc123_led_mode
         self._attr_name = f"Fossibot {device_id} LED Mode"
-        
-        # Unique ID should be stable and unchanging
         self._attr_unique_id = f"{device_id}_led_mode"
-        
         self._attr_options = list(LED_MODES.keys())
+        # Store last selected mode
+        self._last_selected_mode = "Off"
 
     @property
     def current_option(self):
         """Return the currently selected LED mode."""
         led_state = self.coordinator.data[self._device_id].get(self._key, False)
         
-        # This is a simple approximation since we may not have detailed LED mode state
-        # If LED is on, assume "On" mode, otherwise "Off"
-        # A more complex implementation would track the active mode
-        return "On" if led_state else "Off"
+        # If LED is off, return Off
+        if not led_state:
+            self._last_selected_mode = "Off"
+            return "Off"
+        
+        # If LED is on but was previously off, assume "On" mode
+        if self._last_selected_mode == "Off":
+            self._last_selected_mode = "On"
+        
+        # Return the last selected mode
+        return self._last_selected_mode
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
@@ -80,6 +88,10 @@ class FossibotLEDModeSelect(CoordinatorEntity, SelectEntity):
         
         _LOGGER.debug(f"Setting LED mode to {option} using command {command}")
         
+        # Store the selected mode
+        self._last_selected_mode = option
+        
+        # Send the command
         await self.coordinator.connector.run_command(
             self._device_id,
             command,

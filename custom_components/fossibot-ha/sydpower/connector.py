@@ -13,6 +13,7 @@ from .modbus import (
     REGRequestSettings, REGDisableUSBOutput, REGEnableUSBOutput,
     REGDisableDCOutput, REGEnableDCOutput, REGDisableACOutput,
     REGEnableACOutput, REGDisableLED, REGEnableLEDAlways,
+    REGEnableLEDSOS, REGEnableLEDFlash, 
     get_write_modbus
 )
 from .const import REGISTER_MODBUS_ADDRESS, REGISTER_MAXIMUM_CHARGING_CURRENT, REGISTER_AC_SILENT_CHARGING
@@ -322,14 +323,20 @@ class SydpowerConnector:
             command_bytes = REGDisableLED
         elif command == "REGEnableLEDAlways":
             command_bytes = REGEnableLEDAlways
+        # Add these two lines for the missing LED commands
+        elif command == "REGEnableLEDSOS":
+            command_bytes = REGEnableLEDSOS
+        elif command == "REGEnableLEDFlash":
+            command_bytes = REGEnableLEDFlash
         # Handle dynamic commands
         elif command == "set_charging_current" and value is not None:
             command_bytes = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_MAXIMUM_CHARGING_CURRENT, value)
         elif command == "set_ac_silent_charging" and value is not None:
             command_bytes = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_SILENT_CHARGING, 1 if value else 0)
-        
+
         if command_bytes and self.mqtt_client:
             try:
+                self._logger.debug(f"Sending command: {command} with bytes: {command_bytes}")
                 self.mqtt_client.publish_command(device_id, command_bytes)
                 # Update the last communication timestamp
                 self._last_successful_communication = time.time()

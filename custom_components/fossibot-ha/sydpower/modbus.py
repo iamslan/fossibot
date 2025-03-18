@@ -76,7 +76,6 @@ REGDisableACOutput   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUT
 REGEnableACOutput    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUTPUT, 1)
 REGDisableLED        = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 0)
 REGEnableLEDAlways   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 1)
-# Add missing LED modes from JavaScript implementation
 REGEnableLEDSOS      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 2)
 REGEnableLEDFlash    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 3)
 

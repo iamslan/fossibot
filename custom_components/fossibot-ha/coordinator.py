@@ -40,6 +40,9 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
         self._last_successful_update = time.time()
         self._last_data_hash = None
         self._reconnection_in_progress = False
+
+         # Dictionary to store LED modes for devices
+        self.led_modes = {}
         
         # Initialize the health check task reference, but don't start it yet
         self._health_check_task = None

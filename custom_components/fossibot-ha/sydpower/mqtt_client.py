@@ -304,8 +304,12 @@ class MQTTClient:
             return
             
         try:
+            # Enhanced logging
+            self._logger.debug(f"Publishing command to {device_id}: {command}")
+            topic = f"{device_id}/client/request/data"
+            
             self.mqtt_client.publish(
-                f"{device_id}/client/request/data",
+                topic,
                 bytes(command),
                 qos=1
             )
