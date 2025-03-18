@@ -414,14 +414,14 @@ class SydpowerConnector:
             await asyncio.sleep(2)
 
             # Simple retry loop
-            max_attempts = 5
-            base_delay = 1
+            max_attempts = 10
+            base_delay = 3
 
             for attempt in range(max_attempts):
                 self._logger.info(f"Reconnection attempt {attempt+1}/{max_attempts}")
                 try:
                     # Use timeout for connect
-                    connect_result = await asyncio.wait_for(self.connect(), timeout=30.0)
+                    connect_result = await asyncio.wait_for(self.connect(), timeout=45.0)
                     
                     if connect_result:
                         self._logger.info(f"Successfully reconnected on attempt {attempt+1}")
@@ -436,7 +436,7 @@ class SydpowerConnector:
                 
                 # Apply exponential backoff before next attempt
                 if attempt < max_attempts - 1:
-                    delay = min(base_delay * (2 ** attempt), 20)  # Cap at 20 seconds
+                    delay = min(base_delay * (1.5 ** attempt), 30)  # Cap at 20 seconds
                     self._logger.warning(f"Waiting {delay} seconds before next reconnection attempt")
                     await asyncio.sleep(delay)
             
