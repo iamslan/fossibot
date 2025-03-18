@@ -43,25 +43,25 @@ This integration should work with Fossibot/Sydpower power stations compatible wi
 You can manually install this integration as an custom_component under Home Assistant or install it using HACS (Home Assistant Community Store).
 
 ### Manual installation
-1. **Download** the `fossibot-ha` repository or folder.
-2. **Copy** the `custom_components/fossibot-ha` folder from the downloaded files.
-3. **Paste** the `fossibot-ha` folder into your Home Assistant's custom components directory:
-   - Path: `<home_assistant_folder>/custom_components/fossibot-ha`
+1. **Download** the `fossibot` repository or folder.
+2. **Copy** the `custom_components/fossibot` folder from the downloaded files.
+3. **Paste** the `fossibot` folder into your Home Assistant's custom components directory:
+   - Path: `<home_assistant_folder>/custom_components/fossibot`
 4. **Restart** Home Assistant to load the new integration.
 
 ### HACS installation
-The `fossibot-ha` repository is also compatible with HACS (Home Assistant Community Store), making installation and updates easier.
+The `fossibot` repository is also compatible with HACS (Home Assistant Community Store), making installation and updates easier.
 
 1. **Install HACS** (if not already installed):
    - Follow instructions here: [HACS Installation Guide](https://hacs.xyz/docs/use/download/download/#to-download-hacs)
-2. **Add `fossibot-ha` Repository** to HACS:
+2. **Add `fossibot` Repository** to HACS:
    - In Home Assistant, go to **HACS** > **Settings** tab.
-   - Select **Custom Repositories** and add the repository URL `https://github.com/iamslan/fossibot-ha`.
-3. **Install `fossibot-ha`** from HACS:
-   - After adding the repository, find and install `fossibot-ha` under the HACS integrations.
+   - Select **Custom Repositories** and add the repository URL `https://github.com/iamslan/fossibot`.
+3. **Install `fossibot`** from HACS:
+   - After adding the repository, find and install `fossibot` under the HACS integrations.
 4. **Restart** Home Assistant.
 
-Following these steps should successfully install the `fossibot-ha` integration for use with your Home Assistant setup.
+Following these steps should successfully install the `fossibot` integration for use with your Home Assistant setup.
 
 For more guidance on HACS, you can refer to the [HACS Getting Started Guide](https://hacs.xyz/docs/use/).
 
