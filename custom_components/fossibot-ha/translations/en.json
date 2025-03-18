@@ -5,9 +5,19 @@
                 "title": "Connect to Fossibot",
                 "data": {
                     "username": "Username",
-                    "password": "Password"
+                    "password": "Password",
+                    "show_advanced": "Show advanced options"
+                }
+            },
+            "advanced": {
+                "title": "Advanced Options",
+                "data": {
+                    "developer_mode": "Enable developer mode (connects to test environment)"
                 }
             }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect, please check credentials"
         }
     }
 }

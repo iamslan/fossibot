@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Callable, Coroutine
 import paho.mqtt.client as mqtt
 
 from .const import (
-    MQTT_HOST, MQTT_PORT, MQTT_CLIENT_ID_PREFIX, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
+    MQTT_HOST_PROD, MQTT_HOST_DEV, MQTT_PORT, MQTT_CLIENT_ID_PREFIX, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
 )
 from .logger import SmartLogger
 from .modbus import REGRequestSettings, parse_registers, high_low_to_int
@@ -46,11 +46,10 @@ class MQTTClient:
         # Disconnect callback
         self.on_disconnect_callback = None
 
-    
-    async def connect(self, mqtt_token: str, device_ids: List[str]) -> None:
+    async def connect(self, mqtt_token: str, device_ids: List[str], mqtt_host: str = MQTT_HOST_PROD) -> None:
         """Connect to MQTT broker and subscribe to device topics."""
         try:
-            self._logger.debug("Starting MQTT WebSocket connection to %s:%s", MQTT_HOST, MQTT_PORT)
+            self._logger.debug("Starting MQTT WebSocket connection to %s:%s", mqtt_host, MQTT_PORT)
             
             # Reset disconnecting flag to ensure proper state tracking
             self._is_disconnecting = False
@@ -91,7 +90,7 @@ class MQTTClient:
             self._logger.debug("Attempting MQTT WebSocket connection...")
             # Uncomment the following if TLS is required:
             # self.mqtt_client.tls_set()
-            self.mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
+            self.mqtt_client.connect(mqtt_host, MQTT_PORT, keepalive=30)
             self.mqtt_client.loop_start()
             
             try:

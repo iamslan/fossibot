@@ -16,14 +16,15 @@ from .modbus import (
     REGEnableLEDSOS, REGEnableLEDFlash, 
     get_write_modbus
 )
-from .const import REGISTER_MODBUS_ADDRESS, REGISTER_MAXIMUM_CHARGING_CURRENT, REGISTER_AC_SILENT_CHARGING
+from .const import REGISTER_MODBUS_ADDRESS, REGISTER_MAXIMUM_CHARGING_CURRENT, REGISTER_AC_SILENT_CHARGING, MQTT_HOST_PROD, MQTT_HOST_DEV
 
 class SydpowerConnector:
     """Main class for Fossibot/Sydpower API connection."""
     
-    def __init__(self, username: str, password: str):
+    def __init__(self, username: str, password: str, developer_mode: bool = False):
         self.username = username
         self.password = password
+        self.developer_mode = developer_mode  # Add this line
         self._logger = SmartLogger(__name__)
         
         self.api_client: Optional[APIClient] = None
@@ -47,6 +48,8 @@ class SydpowerConnector:
     async def connect(self) -> bool:
         """Connect to the API and MQTT broker. Returns True if successful."""
         # First check if reconnection in progress or already connected
+        mqtt_host = MQTT_HOST_DEV if self.developer_mode else MQTT_HOST_PROD
+
         if self._reconnection_in_progress:
             self._logger.debug("Connection attempt while reconnection in progress, waiting...")
             try:
@@ -131,7 +134,7 @@ class SydpowerConnector:
                 
                 # Step 4: Connect to MQTT
                 self._logger.info("Connecting to MQTT broker")
-                await self.mqtt_client.connect(mqtt_token, device_ids)
+                await self.mqtt_client.connect(mqtt_token, device_ids, mqtt_host)
                 
                 # Wait for MQTT connection
                 try:

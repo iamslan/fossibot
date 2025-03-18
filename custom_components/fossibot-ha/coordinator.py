@@ -34,7 +34,11 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
         # Initialize our connector with the new modular code
         self.username = config.get("username")
         self.password = config.get("password")
-        self.connector = SydpowerConnector(self.username, self.password)
+        self.connector = SydpowerConnector(
+            self.username, 
+            self.password,
+            developer_mode=config.get("developer_mode", False)
+        )        
         self._shutdown_event = asyncio.Event()
         self._failed_updates_count = 0
         self._last_successful_update = time.time()

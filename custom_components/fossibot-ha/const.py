@@ -8,3 +8,4 @@ CONF_SCAN_INTERVAL = "scan_interval"
 
 DEFAULT_SCAN_INTERVAL = 30
 
+CONF_DEVELOPER_MODE = "developer_mode"
