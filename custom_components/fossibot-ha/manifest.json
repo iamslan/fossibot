@@ -1,16 +1,20 @@
 {
     "domain": "fossibot-ha",
     "name": "Fossibot",
-    "integration_type": "hub",
+    "codeowners": [
+        "@alessandro-lac",
+        "@iamslan"
+    ],
     "config_flow": true,
     "documentation": "https://github.com/iamslan/fossibot-ha",
+    "dependencies": [],
+    "integration_type": "hub",
+    "iot_class": "cloud_polling",
+    "issue_tracker": "https://github.com/iamslan/fossibot-ha/issues",
     "requirements": [
         "paho-mqtt[websockets]>=1.6.1",
         "websockets>=11.0.3",
         "aiohttp>=3.8.0"
     ],
-    "dependencies": [],
-    "codeowners": [],
-    "iot_class": "cloud_polling",
-    "version": "0.1.0"
+    "version": "0.1.1"
 }
