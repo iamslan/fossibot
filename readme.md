@@ -10,6 +10,13 @@ This integration is **unofficial** and not affiliated with or endorsed by Fossib
 
 This integration accesses the Fossibot cloud API and sends commands to your devices. While every effort has been made to ensure safe operation, unforeseen issues could potentially affect your device's functionality or firmware.
 
+**Status:** This project is a new implementation of a relatively new API. Consider this code alpha.
+
+Contributions are welcomed, both as issues, but more as pull requests :)
+
+Please [join our Discord](https://discord.gg/NN6R5QNb) and help development by providing feedback and details about the batteries you are using.
+
+
 ## Important Note on API Access
 
 This integration accesses the Fossibot/BrightEMS cloud API using reverse-engineered API endpoints and authentication methods. Before using this integration:
@@ -30,14 +37,33 @@ This integration accesses the Fossibot/BrightEMS cloud API using reverse-enginee
 This integration should work with Fossibot/Sydpower power stations compatible with the BrightEMS app. It has been tested with:
 
 - Fossibot F2400
+- Fossibot F3600 Pro
 
 ## Installation
+You can manually install this integration as an custom_component under Home Assistant or install it using HACS (Home Assistant Community Store).
 
+### Manual installation
+1. **Download** the `fossibot-ha` repository or folder.
+2. **Copy** the `custom_components/fossibot-ha` folder from the downloaded files.
+3. **Paste** the `fossibot-ha` folder into your Home Assistant's custom components directory:
+   - Path: `<home_assistant_folder>/custom_components/fossibot-ha`
+4. **Restart** Home Assistant to load the new integration.
 
-### Manual Installation
+### HACS installation
+The `fossibot-ha` repository is also compatible with HACS (Home Assistant Community Store), making installation and updates easier.
 
-1. Copy the `fossibot` directory from this project into your Home Assistant's `custom_components` directory. If you don't have a `custom_components` directory, create one in your Home Assistant configuration directory.
-2. Restart Home Assistant
+1. **Install HACS** (if not already installed):
+   - Follow instructions here: [HACS Installation Guide](https://hacs.xyz/docs/use/download/download/#to-download-hacs)
+2. **Add `fossibot-ha` Repository** to HACS:
+   - In Home Assistant, go to **HACS** > **Settings** tab.
+   - Select **Custom Repositories** and add the repository URL `https://github.com/iamslan/fossibot-ha`.
+3. **Install `fossibot-ha`** from HACS:
+   - After adding the repository, find and install `fossibot-ha` under the HACS integrations.
+4. **Restart** Home Assistant.
+
+Following these steps should successfully install the `fossibot-ha` integration for use with your Home Assistant setup.
+
+For more guidance on HACS, you can refer to the [HACS Getting Started Guide](https://hacs.xyz/docs/use/).
 
 ## Configuration
 

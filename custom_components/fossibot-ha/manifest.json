@@ -1,9 +1,9 @@
 {
-    "domain": "fossibot",
+    "domain": "fossibot-ha",
     "name": "Fossibot",
     "integration_type": "hub",
     "config_flow": true,
-    "documentation": "https://www.home-assistant.io/integrations/fossibot",
+    "documentation": "https://github.com/iamslan/fossibot-ha",
     "requirements": [
         "paho-mqtt[websockets]>=1.6.1",
         "websockets>=11.0.3",
