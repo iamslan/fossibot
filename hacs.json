@@ -1,0 +1,6 @@
+{
+    "name": "fossibot-ha",
+    "render_readme": true,
+    "hide_default_branch": true,
+    "homeassistant": "2025.3.2"
+}
