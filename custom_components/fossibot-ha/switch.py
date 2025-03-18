@@ -43,14 +43,7 @@ async def async_setup_entry(
                 "REGEnableACOutput",
                 "REGDisableACOutput",
             ),
-            FossibotSwitch(
-                coordinator,
-                device_id,
-                "LED Output",
-                "ledOutput",
-                "REGEnableLEDAlways",
-                "REGDisableLED",
-            ),
+            # LED Output removed from here as it will be implemented as a select entity
         ])
 
     async_add_entities(entities)
@@ -71,9 +64,15 @@ class FossibotSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._device_id = device_id
         self._key = key
-        self._attr_name = name
+        
+        # Set proper name that includes device ID
+        # This will generate an entity_id like: switch.fossibot_abc123_usb_output
+        self._attr_name = f"Fossibot {device_id} {name}"
+        
         self._on_command = on_command
         self._off_command = off_command
+        
+        # Unique ID should be stable and unchanging
         self._attr_unique_id = f"{device_id}_{key}"
 
     @property

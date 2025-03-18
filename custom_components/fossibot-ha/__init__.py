@@ -15,7 +15,8 @@ from .sydpower.connector import SydpowerConnector
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH]
+# Add SELECT platform to the list of platforms
+PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.SELECT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Fossibot from a config entry."""

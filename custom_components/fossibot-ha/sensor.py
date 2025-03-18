@@ -75,9 +75,15 @@ class FossibotSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._device_id = device_id
         self._key = key
-        self._attr_name = name
+        
+        # Set proper name that includes device ID
+        # This will generate an entity_id like: sensor.fossibot_abc123_state_of_charge
+        self._attr_name = f"Fossibot {device_id} {name}"
+        
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
+        
+        # Unique ID should be stable and unchanging
         self._attr_unique_id = f"{device_id}_{key}"
         
         if device_class == SensorDeviceClass.POWER:
