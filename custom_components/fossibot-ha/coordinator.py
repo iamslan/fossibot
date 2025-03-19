@@ -97,6 +97,33 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
                 "Finished fetching %s data in %.3f seconds (success: %s)",
                 DOMAIN, duration, bool(data)
             )
+
+            if data and _LOGGER.isEnabledFor(logging.DEBUG):
+                for device_id, device_data in data.items():
+                    # Extract key values with appropriate formatting
+                    soc = f"{device_data.get('soc', 'N/A')}%" if device_data.get('soc') is not None else 'N/A'
+                    dc_input = f"{device_data.get('dcInput', 'N/A')}W" if device_data.get('dcInput') is not None else 'N/A'
+                    total_in = f"{device_data.get('totalInput', 'N/A')}W" if device_data.get('totalInput') is not None else 'N/A'
+                    total_out = f"{device_data.get('totalOutput', 'N/A')}W" if device_data.get('totalOutput') is not None else 'N/A'
+                    
+                    # Format outputs status
+                    outputs = []
+                    if 'usbOutput' in device_data:
+                        outputs.append(f"USB: {'ON' if device_data['usbOutput'] else 'OFF'}")
+                    if 'dcOutput' in device_data:
+                        outputs.append(f"DC: {'ON' if device_data['dcOutput'] else 'OFF'}")
+                    if 'acOutput' in device_data:
+                        outputs.append(f"AC: {'ON' if device_data['acOutput'] else 'OFF'}")
+                    if 'ledOutput' in device_data:
+                        outputs.append(f"LED: {'ON' if device_data['ledOutput'] else 'OFF'}")
+                    
+                    outputs_str = ", ".join(outputs) if outputs else "Outputs: N/A"
+                    
+                    # Log a readable summary for this device
+                    _LOGGER.debug(
+                        f"Device {device_id} status: SoC: {soc}, DC In: {dc_input}, Total In: {total_in}, "
+                        f"Total Out: {total_out}, {outputs_str}"
+                    )
             
             # Add detailed logging of the actual data received
             if data:
@@ -134,7 +161,13 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
             # Reset counters on successful updates
             self._failed_updates_count = 0
             self._last_successful_update = time.time()
-            
+            # Add a timestamp to force updates even when data hasn't changed
+            # This will make each update unique to Home Assistant
+            for device_id in data:
+                if "_last_reading_timestamp" not in data[device_id]:
+                    data[device_id]["_last_reading_timestamp"] = {}
+                data[device_id]["_last_reading_timestamp"] = time.time()
+
             return data
             
         except Exception as err:

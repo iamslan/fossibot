@@ -246,6 +246,12 @@ class MQTTClient:
             
             if device_update:
                 self._logger.debug("Device %s update parsed successfully", device_mac)
+                # Add logging for specific values if present
+                if 'dcInput' in device_update:
+                    self._logger.info("Device %s DC Input: %s W", device_mac, device_update['dcInput'])
+                if 'soc' in device_update:
+                    self._logger.info("Device %s State of Charge: %s%%", device_mac, device_update['soc'])
+                
                 # Schedule a safe update
                 asyncio.run_coroutine_threadsafe(
                     self._update_device_data(device_mac, device_update),
