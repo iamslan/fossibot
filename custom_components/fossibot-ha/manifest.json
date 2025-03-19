@@ -1,6 +1,6 @@
 {
     "domain": "fossibot",
-    "name": "Fossibot",
+    "name": "fossibot",
     "codeowners": [
         "@alessandro-lac",
         "@iamslan"
