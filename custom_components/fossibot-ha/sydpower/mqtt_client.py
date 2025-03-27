@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Callable, Coroutine
 import paho.mqtt.client as mqtt
 
 from .const import (
-    MQTT_HOST_PROD, MQTT_HOST_DEV, MQTT_PORT, MQTT_CLIENT_ID_PREFIX, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
+    MQTT_HOST_PROD, MQTT_HOST_DEV, MQTT_PORT, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
 )
 from .logger import SmartLogger
 from .modbus import REGRequestSettings, parse_registers, high_low_to_int
@@ -57,10 +57,11 @@ class MQTTClient:
             # Clear connected event before starting
             self.connected.clear()
             
-            # Generate a unique client ID using timestamp and random string
-            unique_id = ''.join(random.choice("0123456789ABCDEF") for _ in range(8))
-            timestamp = int(time.time())
-            client_id = f"{MQTT_CLIENT_ID_PREFIX}_{timestamp}_{unique_id}"
+            # Generate a unique client ID in the format used by the official app
+            # Format: client_[24-character hex string]_[timestamp in milliseconds]
+            hex_string = ''.join(random.choice("0123456789abcdef") for _ in range(24))
+            timestamp_ms = int(time.time() * 1000)  # Convert to milliseconds
+            client_id = f"client_{hex_string}_{timestamp_ms}"
             
             self.mqtt_client = mqtt.Client(
                 client_id=client_id,

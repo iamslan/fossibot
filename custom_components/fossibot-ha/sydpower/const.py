@@ -7,7 +7,6 @@ CLIENT_SECRET = "5rCEdl/nx7IgViBe4QYRiQ=="
 MQTT_HOST_PROD = "mqtt.sydpower.com"
 MQTT_HOST_DEV = "dev.mqtt.sydpower.com"
 MQTT_PORT = 8083
-MQTT_CLIENT_ID_PREFIX = "client_helloyou"
 MQTT_PASSWORD = "helloyou"
 MQTT_WEBSOCKET_PATH = "/mqtt"
 
