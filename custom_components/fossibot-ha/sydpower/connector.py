@@ -96,7 +96,7 @@ class SydpowerConnector:
                 try:
                     auth_result = await asyncio.wait_for(
                         self.api_client.authenticate(self.username, self.password),
-                        timeout=20.0
+                        timeout=30.0
                     )
                 except asyncio.TimeoutError:
                     self._logger.error("API authentication timeout")
@@ -211,7 +211,7 @@ class SydpowerConnector:
         if self._reconnection_in_progress:
             self._logger.debug("Reconnection in progress, waiting before getting data...")
             try:
-                await asyncio.wait_for(self._reconnection_event.wait(), timeout=20.0)
+                await asyncio.wait_for(self._reconnection_event.wait(), timeout=30.0)
             except asyncio.TimeoutError:
                 self._logger.warning("Timeout waiting for reconnection")
                 return {}
@@ -250,13 +250,12 @@ class SydpowerConnector:
 
         # Wait for updates
         start_time = time.time()
-        self._logger.debug("Waiting for device data update (timeout = 20 seconds)...")
+        self._logger.debug("Waiting for device data update (timeout = 30 seconds)...")
         try:
             if not self.mqtt_client:
                 raise RuntimeError("MQTT client is None")
                 
-            # Reduced timeout from 30s to 20s to fail faster
-            await asyncio.wait_for(self.mqtt_client.data_updated.wait(), timeout=20.0)
+            await asyncio.wait_for(self.mqtt_client.data_updated.wait(), timeout=30.0)
             elapsed = time.time() - start_time
             self._logger.debug(f"Device data update event received after {elapsed:.2f} seconds")
             
@@ -275,7 +274,7 @@ class SydpowerConnector:
             return self.devices
             
         except asyncio.TimeoutError:
-            self._logger.warning(f"Timeout waiting for device data update after 20 seconds. Devices: {list(self.devices.keys())}")
+            self._logger.warning(f"Timeout waiting for device data update after 30 seconds. Devices: {list(self.devices.keys())}")
             return {}
         except Exception as e:
             self._logger.error(f"Error waiting for device data update: {e}")
@@ -288,7 +287,7 @@ class SydpowerConnector:
         if self._reconnection_in_progress:
             self._logger.debug("Reconnection in progress, waiting before running command...")
             try:
-                await asyncio.wait_for(self._reconnection_event.wait(), timeout=20.0)
+                await asyncio.wait_for(self._reconnection_event.wait(), timeout=30.0)
             except asyncio.TimeoutError:
                 self._logger.warning("Timeout waiting for reconnection")
                 return False
@@ -439,7 +438,7 @@ class SydpowerConnector:
                 
                 # Apply exponential backoff before next attempt
                 if attempt < max_attempts - 1:
-                    delay = min(base_delay * (1.5 ** attempt), 30)  # Cap at 20 seconds
+                    delay = min(base_delay * (1.5 ** attempt), 30)  # Cap at 30 seconds
                     self._logger.warning(f"Waiting {delay} seconds before next reconnection attempt")
                     await asyncio.sleep(delay)
             
