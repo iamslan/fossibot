@@ -94,7 +94,7 @@ def parse_registers(registers: List[int], topic: str) -> Dict[str, Union[int, fl
             binary_str = format(register_value, '016b')
             
             device_update.update({
-                "soc": round(registers[56] / 1000 * 100, 1),
+                "soc": round(registers[56] / 1000 * 100, 1),             
                 "dcInput": registers[4],
                 "totalInput": registers[6],
                 "totalOutput": registers[39],
@@ -106,6 +106,14 @@ def parse_registers(registers: List[int], topic: str) -> Dict[str, Union[int, fl
                 "acOutput": binary_str[4] == '1',    # Position 4: AC Output
                 "ledOutput": binary_str[3] == '1',   # Position 3: LED Output
             })
+            if registers[53] > 0:
+                device_update.update({
+                    "soc_s1": round(registers[53] / 1000 * 100 - 1, 1),
+                });
+            if registers[55] > 0:
+                device_update.update({
+                    "soc_s2": round(registers[55] / 1000 * 100 - 1, 1),
+                });
         elif 'device/response/client/data' in topic:
             device_update.update({
                 "maximumChargingCurrent": registers[20],
@@ -122,5 +130,9 @@ def parse_registers(registers: List[int], topic: str) -> Dict[str, Union[int, fl
     elif len(registers) >= 57:
         # Partial update with just SOC
         device_update["soc"] = round(registers[56] / 1000 * 100, 1)
+        if registers[53] > 0:
+            device_update["soc_s1"] = round(registers[53] / 1000 * 100 - 1, 1)
+        if registers[55] > 0:
+            device_update["soc_s2"] = round(registers[55] / 1000 * 100 - 1, 1)
         
     return device_update

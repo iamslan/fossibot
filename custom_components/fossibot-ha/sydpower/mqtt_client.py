@@ -252,6 +252,10 @@ class MQTTClient:
                     self._logger.info("Device %s DC Input: %s W", device_mac, device_update['dcInput'])
                 if 'soc' in device_update:
                     self._logger.info("Device %s State of Charge: %s%%", device_mac, device_update['soc'])
+                if 'soc_s1' in device_update:
+                    self._logger.info("Device %s State of Charge S1: %s%%", device_mac, device_update['soc_s1'])
+                if 'soc_s2' in device_update:
+                    self._logger.info("Device %s State of Charge S2: %s%%", device_mac, device_update['soc_s2'])
                 
                 # Schedule a safe update
                 asyncio.run_coroutine_threadsafe(

@@ -34,6 +34,22 @@ async def async_setup_entry(
             FossibotSensor(
                 coordinator,
                 device_id,
+                "State of Charge Slave 1",
+                "soc_s1",
+                "%",
+                SensorDeviceClass.BATTERY,
+            ),
+            FossibotSensor(
+                coordinator,
+                device_id,
+                "State of Charge Slave 2",
+                "soc_s2",
+                "%",
+                SensorDeviceClass.BATTERY,
+            ),
+            FossibotSensor(
+                coordinator,
+                device_id,
                 "DC Input",
                 "dcInput",
                 "W",

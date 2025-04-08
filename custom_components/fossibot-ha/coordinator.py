@@ -102,6 +102,8 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
                 for device_id, device_data in data.items():
                     # Extract key values with appropriate formatting
                     soc = f"{device_data.get('soc', 'N/A')}%" if device_data.get('soc') is not None else 'N/A'
+                    soc_s1 = f"{device_data.get('soc_s1', 'N/A')}%" if device_data.get('soc_s1') is not None and device_data.get('soc_s1') > 0 else 'N/A'
+                    soc_s2 = f"{device_data.get('soc_s2', 'N/A')}%" if device_data.get('soc_s2') is not None and device_data.get('soc_s2') > 0 else 'N/A'
                     dc_input = f"{device_data.get('dcInput', 'N/A')}W" if device_data.get('dcInput') is not None else 'N/A'
                     total_in = f"{device_data.get('totalInput', 'N/A')}W" if device_data.get('totalInput') is not None else 'N/A'
                     total_out = f"{device_data.get('totalOutput', 'N/A')}W" if device_data.get('totalOutput') is not None else 'N/A'
@@ -121,7 +123,7 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
                     
                     # Log a readable summary for this device
                     _LOGGER.debug(
-                        f"Device {device_id} status: SoC: {soc}, DC In: {dc_input}, Total In: {total_in}, "
+                        f"Device {device_id} status: SoC: {soc}, SoC_s1: {soc_s1}, SoC_s2: {soc_s2}, DC In: {dc_input}, Total In: {total_in}, "
                         f"Total Out: {total_out}, {outputs_str}"
                     )
             

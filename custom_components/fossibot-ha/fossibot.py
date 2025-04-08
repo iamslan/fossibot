@@ -540,6 +540,14 @@ class SydpowerConnector:
                         "acOutput": active_outputs[11] == '1',
                         "ledOutput": active_outputs[12] == '1'
                     })
+                    if registers[53] > 0:
+                        device_update.update({
+                            "soc_s1": round(registers[53] / 1000 * 100 - 1, 1),
+                        });
+                    if registers[55] > 0:
+                        device_update.update({
+                            "soc_s2": round(registers[55] / 1000 * 100 - 1, 1),
+                        });
                 elif 'device/response/client/data' in topic:
                     device_update.update({
                         "maximumChargingCurrent": registers[20],
@@ -562,7 +570,13 @@ class SydpowerConnector:
                 try:
                     if len(registers) >= 57:
                         device_update["soc"] = round(registers[56] / 1000 * 100, 1)
+                        if registers[53] > 0:
+                            device_update["soc_s1"] = round(registers[53] / 1000 * 100 - 1, 1)
+                        if registers[55] > 0:
+                            device_update["soc_s2"] = round(registers[55] / 1000 * 100 - 1, 1)
                         self._logger.debug("Partial update: SOC set to %s", device_update["soc"])
+                        self._logger.debug("Partial update: SOC_s1 set to %s", device_update["soc_s1"])
+                        self._logger.debug("Partial update: SOC_s2 set to %s", device_update["soc_s2"])
                     else:
                         self._logger.warning("Not enough registers to perform even a partial update.")
                 except Exception as e:
