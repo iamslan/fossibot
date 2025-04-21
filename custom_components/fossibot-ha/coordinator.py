@@ -107,6 +107,7 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
                     dc_input = f"{device_data.get('dcInput', 'N/A')}W" if device_data.get('dcInput') is not None else 'N/A'
                     total_in = f"{device_data.get('totalInput', 'N/A')}W" if device_data.get('totalInput') is not None else 'N/A'
                     total_out = f"{device_data.get('totalOutput', 'N/A')}W" if device_data.get('totalOutput') is not None else 'N/A'
+                    ac_charging_rate = f"{device_data.get('acChargingRate', 'N/A')}W" if device_data.get('acChargingRate') is not None else 'N/A'
                     
                     # Format outputs status
                     outputs = []
@@ -118,6 +119,8 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
                         outputs.append(f"AC: {'ON' if device_data['acOutput'] else 'OFF'}")
                     if 'ledOutput' in device_data:
                         outputs.append(f"LED: {'ON' if device_data['ledOutput'] else 'OFF'}")
+                    if 'acSilentCharging' in device_data:
+                        outputs.append(f"ACSILENTCHG: {'ON' if device_data['acSilentCharging'] else 'OFF'}")
                     
                     outputs_str = ", ".join(outputs) if outputs else "Outputs: N/A"
                     
@@ -125,6 +128,7 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug(
                         f"Device {device_id} status: SoC: {soc}, SoC_s1: {soc_s1}, SoC_s2: {soc_s2}, DC In: {dc_input}, Total In: {total_in}, "
                         f"Total Out: {total_out}, {outputs_str}"
+                        f"AC Charging Rate: {ac_charging_rate}"
                     )
             
             # Add detailed logging of the actual data received

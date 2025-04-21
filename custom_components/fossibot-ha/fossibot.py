@@ -97,15 +97,17 @@ REGISTER_STATE_OF_CHARGE = 56
 REGISTER_AC_SILENT_CHARGING = 57
 
 # Pre-defined commands
-REGRequestSettings   = get_read_modbus(REGISTER_MODBUS_ADDRESS, 80)
-REGDisableUSBOutput  = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_USB_OUTPUT, 0)
-REGEnableUSBOutput   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_USB_OUTPUT, 1)
-REGDisableDCOutput   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_DC_OUTPUT, 0)
-REGEnableDCOutput    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_DC_OUTPUT, 1)
-REGDisableACOutput   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUTPUT, 0)
-REGEnableACOutput    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUTPUT, 1)
-REGDisableLED        = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 0)
-REGEnableLEDAlways   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 1)
+REGRequestSettings      = get_read_modbus(REGISTER_MODBUS_ADDRESS, 80)
+REGDisableUSBOutput     = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_USB_OUTPUT, 0)
+REGEnableUSBOutput      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_USB_OUTPUT, 1)
+REGDisableDCOutput      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_DC_OUTPUT, 0)
+REGEnableDCOutput       = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_DC_OUTPUT, 1)
+REGDisableACOutput      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUTPUT, 0)
+REGEnableACOutput       = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_OUTPUT, 1)
+REGDisableLED           = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 0)
+REGEnableLEDAlways      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_LED, 1)
+REGDisableACSilentChg   = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_SILENT_CHARGING, 0)
+REGEnableACSilentChg    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_SILENT_CHARGING, 1)
 
 # -----------------------------------------------------------------------------
 # Configuration constants and device info
@@ -550,6 +552,7 @@ class SydpowerConnector:
                         });
                 elif 'device/response/client/data' in topic:
                     device_update.update({
+                        "acChargingRate": registers[13],
                         "maximumChargingCurrent": registers[20],
                         "acSilentCharging": (registers[57] == 1),
                         "usbStandbyTime": registers[59],

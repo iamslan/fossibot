@@ -66,6 +66,14 @@ async def async_setup_entry(
             FossibotSensor(
                 coordinator,
                 device_id,
+                "AC Charging Rate",
+                "acChargingRate",
+                None,
+                None,
+            ),
+            FossibotSensor(
+                coordinator,
+                device_id,
                 "Total Output",
                 "totalOutput",
                 "W",

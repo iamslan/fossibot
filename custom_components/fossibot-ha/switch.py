@@ -43,6 +43,14 @@ async def async_setup_entry(
                 "REGEnableACOutput",
                 "REGDisableACOutput",
             ),
+            FossibotSwitch(
+                coordinator,
+                device_id,
+                "AC Silent Charging",
+                "acSilentCharging",
+                "REGEnableACSilentChg",
+                "REGDisableACSilentChg",
+            ),
             # LED Output removed from here as it will be implemented as a select entity
         ])
 
