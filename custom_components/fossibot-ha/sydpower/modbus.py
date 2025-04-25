@@ -100,6 +100,10 @@ def parse_registers(registers: List[int], topic: str) -> Dict[str, Union[int, fl
                 "dcInput": registers[4],
                 "totalInput": registers[6],
                 "totalOutput": registers[39],
+                "acOutputVoltage": (registers[18] / 10),
+                "acOutputFrequency": (registers[19] / 10),
+                "acInputVoltage": (registers[21] / 10),
+                "acInputFrequency": (registers[22] / 100),
                 
                 # IMPORTANT: Direct string indexing in Python is exactly the same
                 # as array indexing in JavaScript after split
@@ -126,8 +130,8 @@ def parse_registers(registers: List[int], topic: str) -> Dict[str, Union[int, fl
                 "dcStandbyTime": registers[61],
                 "screenRestTime": registers[62],
                 "stopChargeAfter": registers[63],
-                "dischargeLowerLimit": registers[66],
-                "acChargingUpperLimit": registers[67],
+                "dischargeLowerLimit": (registers[66]/10),
+                "acChargingUpperLimit": (registers[67]/10),
                 "wholeMachineUnusedTime": registers[68]
             })
     elif len(registers) >= 57:
