@@ -114,7 +114,7 @@ REGEnableACSilentChg    = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_AC_
 # -----------------------------------------------------------------------------
 ENDPOINT = "https://api.next.bspapp.com/client"
 CLIENT_SECRET = "5rCEdl/nx7IgViBe4QYRiQ=="
-MQTT_HOST = "mqtt.sydpower.com"
+MQTT_HOST = "pro.emqx1-cluster1.sydpower.com"
 MQTT_PORT = 8083
 MQTT_CLIENT_ID = "client_helloyou"
 MQTT_PASSWORD = "helloyou"

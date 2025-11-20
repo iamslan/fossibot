@@ -4,8 +4,8 @@ ENDPOINT = "https://api.next.bspapp.com/client"
 CLIENT_SECRET = "5rCEdl/nx7IgViBe4QYRiQ=="
 
 # MQTT Settings
-MQTT_HOST_PROD = "mqtt.sydpower.com"
-MQTT_HOST_DEV = "dev.mqtt.sydpower.com"
+MQTT_HOST_PROD = "pro.emqx1-cluster1.sydpower.com"
+MQTT_HOST_DEV = "dev.emqx1-cluster1.sydpower.com"
 MQTT_PORT = 8083
 MQTT_PASSWORD = "helloyou"
 MQTT_WEBSOCKET_PATH = "/mqtt"
