@@ -1,100 +1,140 @@
 # Fossibot Home Assistant Integration
 
-A custom integration for Home Assistant that allows you to monitor and control your Fossibot power stations.
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![GitHub Release](https://img.shields.io/github/v/release/iamslan/fossibot)](https://github.com/iamslan/fossibot/releases)
+[![License: MIT](https://img.shields.io/github/license/iamslan/fossibot)](LICENSE)
 
-## ⚠️ Disclaimer
+A custom [Home Assistant](https://www.home-assistant.io/) integration to monitor and control **Fossibot / Sydpower** portable power stations via the BrightEMS cloud API.
 
-This integration is **unofficial** and not affiliated with or endorsed by Fossibot, Sydpower, or BrightEMS. 
+> **Disclaimer** — This integration is unofficial and not affiliated with Fossibot, Sydpower, or BrightEMS. **Use at your own risk.** The authors are not responsible for any damage to your devices.
 
-**USE AT YOUR OWN RISK.** The author is not responsible for any damage to your devices, loss of data, or any other issues that may arise from using this integration. This is provided as-is with no warranty or guarantees of any kind.
+[Join our Discord](https://discord.gg/NN6R5QNb) to help with development, report issues, or share feedback about your battery model.
 
-This integration accesses the Fossibot cloud API and sends commands to your devices. While every effort has been made to ensure safe operation, unforeseen issues could potentially affect your device's functionality or firmware.
-
-**Status:** This project is a new implementation of a relatively new API. Consider this code alpha.
-
-Contributions are welcomed, both as issues, but more as pull requests :)
-
-Please [join our Discord](https://discord.gg/NN6R5QNb) and help development by providing feedback and details about the batteries you are using.
-
-
-## Important Note on API Access
-
-This integration accesses the Fossibot/BrightEMS cloud API using reverse-engineered API endpoints and authentication methods. Before using this integration:
-
-1. Be aware that this might violate the Terms of Service of Fossibot/BrightEMS
-2. The API could change at any time, potentially breaking this integration
-3. API credentials and endpoints are included in the code for functionality
+---
 
 ## Features
 
-- **Monitor power station status**: Battery level, power input/output, and more
-- **Control outputs**: Toggle USB, DC, AC, and LED outputs
-- **Automatic reconnection**: Robust error handling and connection recovery
-- **Regular updates**: Polls the Fossibot cloud API to keep data current
+- **11 sensors** — battery SoC (+ slave 1 & 2), power input/output, AC voltage & frequency
+- **4 switches** — USB, DC, AC output toggles + AC silent charging
+- **6 selects** — LED mode, USB/AC/DC standby time, screen rest time, sleep time
+- **4 number controls** — max charging current, stop charge timer, discharge/charge limits
+- **Dynamic MQTT** — endpoint auto-discovered from the API with fallback, fixing connectivity across regions
+- **Write protection** — every register write validated against a safety whitelist
+- **Auto-reconnection** — exponential backoff with connection verification
+- **Per-device Modbus addressing** — extracted from API, not hardcoded
 
 ## Supported Devices
 
-This integration should work with Fossibot/Sydpower power stations compatible with the BrightEMS app. It has been tested with:
+Compatible with power stations that work with the **BrightEMS** app. Tested on:
 
-- Fossibot F2400
-- Fossibot F3600 Pro
+| Model | Status |
+|-------|--------|
+| Fossibot F2400 | Working |
+| Fossibot F3600 Pro | Working |
+
+Other Fossibot / Sydpower models likely work — please report your results on Discord or GitHub Issues.
 
 ## Installation
-You can manually install this integration as an custom_component under Home Assistant or install it using HACS (Home Assistant Community Store).
 
-### Manual installation
-1. **Download** the `fossibot` repository or folder.
-2. **Copy** the `custom_components/fossibot` folder from the downloaded files.
-3. **Paste** the `fossibot` folder into your Home Assistant's custom components directory:
-   - Path: `<home_assistant_folder>/custom_components/fossibot`
-4. **Restart** Home Assistant to load the new integration.
+### HACS (recommended)
 
-### HACS installation
-The `fossibot` repository is also compatible with HACS (Home Assistant Community Store), making installation and updates easier.
+1. Open **HACS** > **Integrations** > **Custom Repositories**
+2. Add `https://github.com/iamslan/fossibot` as an **Integration**
+3. Search for **Fossibot** and install it
+4. Restart Home Assistant
 
-1. **Install HACS** (if not already installed):
-   - Follow instructions here: [HACS Installation Guide](https://hacs.xyz/docs/use/download/download/#to-download-hacs)
-2. **Add `fossibot` Repository** to HACS:
-   - In Home Assistant, go to **HACS** > **Settings** tab.
-   - Select **Custom Repositories** and add the repository URL `https://github.com/iamslan/fossibot`.
-3. **Install `fossibot`** from HACS:
-   - After adding the repository, find and install `fossibot` under the HACS integrations.
-4. **Restart** Home Assistant.
+### Manual
 
-Following these steps should successfully install the `fossibot` integration for use with your Home Assistant setup.
-
-For more guidance on HACS, you can refer to the [HACS Getting Started Guide](https://hacs.xyz/docs/use/).
+1. Download this repository
+2. Copy the `custom_components/fossibot-ha` folder to `<config>/custom_components/fossibot-ha`
+3. Restart Home Assistant
 
 ## Configuration
 
-After installation, you can add the integration through the Home Assistant UI:
+1. Go to **Settings** > **Devices & Services**
+2. Click **+ Add Integration** and search for **Fossibot**
+3. Enter your BrightEMS app credentials (username and password)
+4. Click Submit
 
-1. Go to **Configuration** → **Devices & Services**
-2. Click the **+ ADD INTEGRATION** button in the bottom right
-3. Search for "Fossibot" and select it
-4. Enter your BrightEMS/Fossibot app credentials (username and password)
-5. Click Submit
+The integration will authenticate, discover your devices, and create all entities automatically.
 
-## Entities Created
+## Entities
 
-For each Fossibot power station, the following entities will be created:
+### Sensors (read-only)
 
-### Sensors
-- Battery State of Charge (%)
-- DC Input Power (W)
-- Total Input Power (W)
-- Total Output Power (W)
-- _(Additional sensors may be created based on device capabilities)_
+| Entity | Unit | Description |
+|--------|------|-------------|
+| State of Charge | % | Main battery SoC |
+| State of Charge Slave 1 | % | Expansion battery 1 SoC |
+| State of Charge Slave 2 | % | Expansion battery 2 SoC |
+| DC Input | W | Solar / DC input power |
+| Total Input | W | Combined input power |
+| AC Charging Rate | — | Current AC charging rate knob position |
+| Total Output | W | Combined output power |
+| AC Output Voltage | V | AC output voltage |
+| AC Output Frequency | Hz | AC output frequency |
+| AC Input Voltage | V | AC input voltage |
+| AC Input Frequency | Hz | AC input frequency |
 
-### Switches
-- USB Output
-- DC Output
-- AC Output
-- LED Light
+### Switches (on/off)
+
+| Entity | Description |
+|--------|-------------|
+| USB Output | Toggle USB ports |
+| DC Output | Toggle DC output |
+| AC Output | Toggle AC inverter |
+| AC Silent Charging | Toggle silent charging mode |
+
+### Selects (dropdown)
+
+| Entity | Options |
+|--------|---------|
+| LED Mode | Off, On, SOS, Flash |
+| USB Standby Time | Off, 3 min, 5 min, 10 min, 30 min |
+| AC Standby Time | Off, 8 hours, 16 hours, 24 hours |
+| DC Standby Time | Off, 8 hours, 16 hours, 24 hours |
+| Screen Rest Time | Off, 3 min, 5 min, 10 min, 30 min |
+| Sleep Time | 5 min, 10 min, 30 min, 8 hours |
+
+### Numbers (slider / input)
+
+| Entity | Range | Unit | Description |
+|--------|-------|------|-------------|
+| Maximum Charging Current | 1–20 | A | AC charging current limit |
+| Stop Charge After | 0–1440 | min | Auto-stop charging timer (0 = off) |
+| Discharge Lower Limit | 0–100 | % | Minimum SoC before output cutoff |
+| AC Charging Upper Limit | 0–100 | % | Maximum SoC to charge to |
+
+## Architecture
+
+```
+custom_components/fossibot-ha/
+  __init__.py          # Integration setup, platform loading
+  config_flow.py       # UI-based configuration
+  coordinator.py       # DataUpdateCoordinator (polling loop)
+  entity.py            # FossibotEntity base class
+  sensor.py            # 11 sensor entities (data-driven)
+  switch.py            # 4 switch entities (data-driven)
+  select.py            # 6 select entities (data-driven)
+  number.py            # 4 number entities (data-driven)
+  sydpower/
+    api_client.py      # REST API (auth, MQTT token, device list)
+    mqtt_client.py     # MQTT over WebSocket (paho-mqtt)
+    connector.py       # Connection orchestration + fallback
+    modbus.py          # Modbus encoding, CRC-16, safety validation
+    const.py           # Endpoints, register addresses
+    logger.py          # Rate-limited smart logger
+```
+
+**Key design decisions:**
+- All entity definitions are data-driven (lists of dicts) — no per-entity boilerplate
+- `WRITABLE_REGISTERS` safety map in `modbus.py` defines the exact set of allowed values per register, preventing accidental writes that could brick a device
+- MQTT host is discovered from the API at runtime with a hardcoded fallback, so the integration works across all regions
+- Per-device `modbus_address` is extracted from the API rather than assumed
 
 ## Debugging
 
-If you encounter issues with the integration, you can enable debug logging by adding the following to your `configuration.yaml` file:
+Enable debug logging in `configuration.yaml`:
 
 ```yaml
 logger:
@@ -103,29 +143,32 @@ logger:
     custom_components.fossibot: debug
 ```
 
-After restarting Home Assistant, detailed logs will be available in the Home Assistant log file.
+### Standalone discovery script
 
-## Development
+For debugging MQTT connectivity without Home Assistant:
 
-This integration uses:
-- Home Assistant's `DataUpdateCoordinator` for efficient data polling
-- Async MQTT over WebSockets for real-time device communication
-- REST API for authentication
-- Modbus-style commands for device control
+```bash
+pip install aiohttp paho-mqtt
+python scripts/discover_mqtt.py <username> <password>
+```
 
-The code employs a modular approach with separate components for API client, MQTT handler, and device command processing.
+This dumps all API responses and tests MQTT connectivity against both the API-provided and fallback hosts.
 
 ## Limitations
 
-- Requires internet connectivity to work (cloud-based)
+- Requires internet — this is a cloud-based integration
 - Depends on the Fossibot/Sydpower cloud service being operational
-- May be affected by changes to the Fossibot API or app
-- Authentication tokens may expire periodically, requiring reconnection
+- API may change without notice (reverse-engineered endpoints)
+- Slave battery SoC sensors only appear when expansion batteries are connected and report non-zero values
+
+## Contributing
+
+Contributions are welcome — both issues and pull requests. If you have a Fossibot model not listed above, running the discovery script and sharing the (redacted) output helps a lot.
 
 ## Credits
 
-This integration was created by leveraging code developed by iamslan, based on analyzing the BrightEMS app's communication patterns. The original reverse engineering work and analysis of the API was performed by iamslan.
+Created by [@iamslan](https://github.com/iamslan) and [@alessandro-lac](https://github.com/alessandro-lac), based on reverse engineering the BrightEMS app's communication patterns.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+[MIT](LICENSE)
