@@ -14,10 +14,21 @@
                 "data": {
                     "developer_mode": "Enable developer mode (connects to test environment)"
                 }
+            },
+            "reauth_confirm": {
+                "title": "Reauthenticate Fossibot",
+                "description": "Your credentials have expired. Please re-enter them.",
+                "data": {
+                    "username": "Username",
+                    "password": "Password"
+                }
             }
         },
         "error": {
             "cannot_connect": "Failed to connect, please check credentials"
+        },
+        "abort": {
+            "reauth_successful": "Reauthentication successful"
         }
     }
 }
