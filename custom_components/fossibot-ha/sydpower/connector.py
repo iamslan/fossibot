@@ -12,8 +12,8 @@ from .modbus import (
     REGDisableDCOutput, REGEnableDCOutput, REGDisableACOutput,
     REGEnableACOutput, REGDisableLED, REGEnableLEDAlways,
     REGEnableLEDSOS, REGEnableLEDFlash, REGDisableACSilentChg,
-    REGEnableACSilentChg, get_read_modbus, get_write_modbus,
-    ModbusValidationError,
+    REGEnableACSilentChg, get_read_modbus, get_read_input_modbus,
+    get_write_modbus, ModbusValidationError,
 )
 from .const import (
     REGISTER_MODBUS_ADDRESS, REGISTER_SCREEN_REST_TIME,
@@ -253,6 +253,13 @@ class SydpowerConnector:
         try:
             self.mqtt_client.data_updated.clear()
 
+            # Send sensor read (func 04) first
+            for device_id in device_ids:
+                self._send_sensor_read_request(device_id)
+
+            await asyncio.sleep(0.5)
+
+            # Then settings read (func 03)
             for device_id in device_ids:
                 self._send_read_request(device_id)
 
@@ -324,12 +331,22 @@ class SydpowerConnector:
         return {}
 
     async def _poll_devices(self, num_devices: int) -> Dict[str, Any]:
-        """Send a Modbus read and wait for a response."""
+        """Send Modbus reads (sensors + settings) and wait for responses."""
         if not self.mqtt_client:
             return {}
 
         self.mqtt_client.data_updated.clear()
 
+        # Send sensor read first (func 04) — SoC, power, output states
+        for device_mac in self.devices:
+            if not self.mqtt_client:
+                return {}
+            self._send_sensor_read_request(device_mac)
+
+        # Battery processes one command at a time — gap before next read
+        await asyncio.sleep(0.5)
+
+        # Send settings read (func 03) — charging rates, timers, etc.
         for device_mac in self.devices:
             if not self.mqtt_client:
                 return {}
@@ -340,8 +357,8 @@ class SydpowerConnector:
                 self.mqtt_client.data_updated.wait(), timeout=5.0
             )
 
-            if num_devices > 1:
-                await asyncio.sleep(2)
+            # Wait for both responses to arrive
+            await asyncio.sleep(1.0 if num_devices == 1 else 2.0)
 
             if self.mqtt_client.devices:
                 self._last_successful_communication = time.time()
@@ -361,7 +378,7 @@ class SydpowerConnector:
         The battery firmware processes one command at a time.  Sending a
         write and read simultaneously causes the read to be dropped.
         Instead we send the write, wait for the ACK (~200ms), then send
-        the read once the battery is ready.
+        sensor + settings reads sequentially.
         """
         if not self.mqtt_client:
             return {}
@@ -375,9 +392,18 @@ class SydpowerConnector:
         # Give battery time to process write and send ACK
         await asyncio.sleep(1.0)
 
-        # Phase 2: now send a read — battery is awake
+        # Phase 2: battery is awake — send sensor read (func 04) first
         self.mqtt_client.data_updated.clear()
 
+        for device_mac in self.devices:
+            if not self.mqtt_client:
+                return {}
+            self._send_sensor_read_request(device_mac)
+
+        # Gap before settings read
+        await asyncio.sleep(0.5)
+
+        # Phase 3: send settings read (func 03)
         for device_mac in self.devices:
             if not self.mqtt_client:
                 return {}
@@ -388,8 +414,8 @@ class SydpowerConnector:
                 self.mqtt_client.data_updated.wait(), timeout=5.0
             )
 
-            if num_devices > 1:
-                await asyncio.sleep(2)
+            # Wait for both responses to arrive
+            await asyncio.sleep(1.0 if num_devices == 1 else 2.0)
 
             if self.mqtt_client.devices:
                 self._last_successful_communication = time.time()
@@ -416,6 +442,25 @@ class SydpowerConnector:
         modbus_count = device_info.get("_modbus_count", 80)
 
         command_bytes = get_read_modbus(modbus_addr, modbus_count)
+        self.mqtt_client.publish_command(device_mac, command_bytes)
+
+    def _send_sensor_read_request(self, device_mac: str) -> None:
+        """Send a Modbus read input registers (func 04) for sensor data.
+
+        Function code 04 returns SoC, power, and output states on the
+        ``client/04`` MQTT topic, unlike function code 03 which only
+        returns settings on ``client/data``.
+        """
+        if not self.mqtt_client:
+            return
+
+        device_info = self.devices.get(device_mac, {})
+        modbus_addr = device_info.get(
+            "_modbus_address", REGISTER_MODBUS_ADDRESS
+        )
+        modbus_count = device_info.get("_modbus_count", 80)
+
+        command_bytes = get_read_input_modbus(modbus_addr, modbus_count)
         self.mqtt_client.publish_command(device_mac, command_bytes)
 
     def _send_keepalive_write(self, device_mac: str) -> None:

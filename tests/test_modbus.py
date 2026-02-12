@@ -14,13 +14,16 @@ from fossibot_ha.sydpower.modbus import (
     sa,
     aa,
     ia,
+    ia_input,
     get_write_modbus,
     get_read_modbus,
+    get_read_input_modbus,
     parse_registers,
     ModbusValidationError,
     WRITABLE_REGISTERS,
     # Pre-defined commands
     REGRequestSettings,
+    REGRequestSensors,
     REGDisableUSBOutput,
     REGEnableUSBOutput,
     REGDisableDCOutput,
@@ -139,11 +142,32 @@ class TestCommandBuilding:
     def test_ia_read_command_structure(self):
         cmd = ia(17, 0, 80, False)
         assert cmd[0] == 17  # address
-        assert cmd[1] == 3   # function code 3 = read
+        assert cmd[1] == 3   # function code 3 = read holding registers
         assert len(cmd) == 8
+
+    def test_ia_input_read_command_structure(self):
+        cmd = ia_input(17, 0, 80, False)
+        assert cmd[0] == 17  # address
+        assert cmd[1] == 4   # function code 4 = read input registers
+        assert len(cmd) == 8
+
+    def test_ia_vs_ia_input_differ_only_in_func_code(self):
+        """func 03 and 04 commands should differ only in byte[1]."""
+        cmd_03 = ia(17, 0, 80, False)
+        cmd_04 = ia_input(17, 0, 80, False)
+        assert cmd_03[0] == cmd_04[0]  # same address
+        assert cmd_03[1] == 3
+        assert cmd_04[1] == 4
+        # Data bytes (register start + count) are the same
+        assert cmd_03[2:6] == cmd_04[2:6]
+        # CRC differs because func code changed
+        assert cmd_03[-2:] != cmd_04[-2:]
 
     def test_get_read_modbus_matches_ia(self):
         assert get_read_modbus(17, 80) == ia(17, 0, 80, False)
+
+    def test_get_read_input_modbus_matches_ia_input(self):
+        assert get_read_input_modbus(17, 80) == ia_input(17, 0, 80, False)
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +179,8 @@ class TestPredefinedCommands:
 
     def test_all_predefined_are_lists(self):
         for cmd in [
-            REGRequestSettings, REGDisableUSBOutput, REGEnableUSBOutput,
+            REGRequestSettings, REGRequestSensors,
+            REGDisableUSBOutput, REGEnableUSBOutput,
             REGDisableDCOutput, REGEnableDCOutput, REGDisableACOutput,
             REGEnableACOutput, REGDisableLED, REGEnableLEDAlways,
             REGEnableLEDSOS, REGEnableLEDFlash, REGDisableACSilentChg,
@@ -178,13 +203,26 @@ class TestPredefinedCommands:
             assert len(cmd) == 8
 
     def test_read_settings_length(self):
-        """Read command should be 8 bytes."""
+        """Read settings command should be 8 bytes."""
         assert len(REGRequestSettings) == 8
+
+    def test_read_sensors_length(self):
+        """Read sensors command should be 8 bytes."""
+        assert len(REGRequestSensors) == 8
+
+    def test_read_sensors_func_code(self):
+        """Read sensors command should use function code 04."""
+        assert REGRequestSensors[1] == 4
+
+    def test_read_settings_func_code(self):
+        """Read settings command should use function code 03."""
+        assert REGRequestSettings[1] == 3
 
     def test_all_start_with_address(self):
         """All commands should start with the Modbus address."""
         for cmd in [
-            REGRequestSettings, REGDisableUSBOutput, REGEnableUSBOutput,
+            REGRequestSettings, REGRequestSensors,
+            REGDisableUSBOutput, REGEnableUSBOutput,
             REGDisableDCOutput, REGEnableDCOutput,
         ]:
             assert cmd[0] == REGISTER_MODBUS_ADDRESS

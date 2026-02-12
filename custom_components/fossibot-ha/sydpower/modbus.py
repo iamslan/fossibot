@@ -122,11 +122,19 @@ def aa(e: int, t: int, n: List[int], o: bool) -> List[int]:
 
 
 def ia(e: int, t: int, n: int, o: bool) -> List[int]:
-    """Wrap getReadModbus: prepare a read command."""
+    """Wrap getReadModbus: prepare a read holding registers command (func 03)."""
     r = zi(t)
     i_val = n & 0xff
     a_val = n >> 8
     return sa(e, 3, [r['high'], r['low'], a_val, i_val], o)
+
+
+def ia_input(e: int, t: int, n: int, o: bool) -> List[int]:
+    """Wrap getReadInputModbus: read input registers command (func 04)."""
+    r = zi(t)
+    i_val = n & 0xff
+    a_val = n >> 8
+    return sa(e, 4, [r['high'], r['low'], a_val, i_val], o)
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +162,19 @@ def get_write_modbus(address: int, feature: int, value: int) -> List[int]:
 
 
 def get_read_modbus(address: int, count: int) -> List[int]:
-    """Encode a Modbus read command."""
+    """Encode a Modbus read holding registers command (function code 03).
+
+    Returns settings data on the ``client/data`` MQTT topic.
+    """
     return ia(address, 0, count, False)
+
+
+def get_read_input_modbus(address: int, count: int) -> List[int]:
+    """Encode a Modbus read input registers command (function code 04).
+
+    Returns sensor data (SoC, power, outputs) on the ``client/04`` topic.
+    """
+    return ia_input(address, 0, count, False)
 
 
 def _format_allowed(allowed: FrozenSet[int]) -> str:
@@ -171,6 +190,7 @@ def _format_allowed(allowed: FrozenSet[int]) -> str:
 # ---------------------------------------------------------------------------
 
 REGRequestSettings      = get_read_modbus(REGISTER_MODBUS_ADDRESS, 80)
+REGRequestSensors       = get_read_input_modbus(REGISTER_MODBUS_ADDRESS, 80)
 REGDisableUSBOutput     = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_USB_OUTPUT, 0)
 REGEnableUSBOutput      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_USB_OUTPUT, 1)
 REGDisableDCOutput      = get_write_modbus(REGISTER_MODBUS_ADDRESS, REGISTER_DC_OUTPUT, 0)
