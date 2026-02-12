@@ -161,6 +161,10 @@ This dumps all API responses and tests MQTT connectivity against both the API-pr
 - API may change without notice (reverse-engineered endpoints)
 - Slave battery SoC sensors only appear when expansion batteries are connected and report non-zero values
 
+## Local / LAN Mode
+
+Want to keep MQTT traffic on your local network? You can redirect the battery's MQTT connection to a self-hosted EMQX broker on Home Assistant using a DNS rewrite. See the **[Local MQTT Guide](docs/LOCAL_MQTT.md)** for step-by-step instructions.
+
 ## Contributing
 
 Contributions are welcome — both issues and pull requests. If you have a Fossibot model not listed above, running the discovery script and sharing the (redacted) output helps a lot.
