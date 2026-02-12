@@ -307,14 +307,13 @@ class SydpowerConnector:
 
         # Step 1: Try a Modbus read request (works on first connect, but
         # battery firmware often ignores subsequent reads).
-        data = await self._poll_devices(num_devices, method="read")
+        data = await self._poll_devices(num_devices)
         if data:
             return data
 
-        # Step 2: Battery ignored the read — send a keepalive write
-        # (write a harmless register back to its current value).  Write
-        # commands always trigger a full state response.
-        data = await self._poll_devices(num_devices, method="keepalive")
+        # Step 2: Battery ignored the read — send a keepalive write to
+        # wake it, wait for the ACK, then try reading again.
+        data = await self._wake_and_read(num_devices)
         if data:
             return data
 
@@ -324,14 +323,8 @@ class SydpowerConnector:
         )
         return {}
 
-    async def _poll_devices(
-        self, num_devices: int, method: str = "read"
-    ) -> Dict[str, Any]:
-        """Send a data request and wait for a response.
-
-        method="read"      — Modbus read using per-device address/count
-        method="keepalive"  — write-back of a cached register value
-        """
+    async def _poll_devices(self, num_devices: int) -> Dict[str, Any]:
+        """Send a Modbus read and wait for a response."""
         if not self.mqtt_client:
             return {}
 
@@ -340,11 +333,7 @@ class SydpowerConnector:
         for device_mac in self.devices:
             if not self.mqtt_client:
                 return {}
-
-            if method == "keepalive":
-                self._send_keepalive(device_mac)
-            else:
-                self._send_read_request(device_mac)
+            self._send_read_request(device_mac)
 
         try:
             await asyncio.wait_for(
@@ -360,11 +349,58 @@ class SydpowerConnector:
                 return self.devices
 
         except asyncio.TimeoutError:
-            self._logger.debug(
-                "No response within 5s (%s)", method
-            )
+            self._logger.debug("No response within 5s (read)")
         except Exception as e:
-            self._logger.error("Error during %s poll: %s", method, e)
+            self._logger.error("Error during read poll: %s", e)
+
+        return {}
+
+    async def _wake_and_read(self, num_devices: int) -> Dict[str, Any]:
+        """Wake the battery with a write, wait for ACK, then read.
+
+        The battery firmware processes one command at a time.  Sending a
+        write and read simultaneously causes the read to be dropped.
+        Instead we send the write, wait for the ACK (~200ms), then send
+        the read once the battery is ready.
+        """
+        if not self.mqtt_client:
+            return {}
+
+        # Phase 1: send keepalive write and wait for the ACK
+        for device_mac in self.devices:
+            if not self.mqtt_client:
+                return {}
+            self._send_keepalive_write(device_mac)
+
+        # Give battery time to process write and send ACK
+        await asyncio.sleep(1.0)
+
+        # Phase 2: now send a read — battery is awake
+        self.mqtt_client.data_updated.clear()
+
+        for device_mac in self.devices:
+            if not self.mqtt_client:
+                return {}
+            self._send_read_request(device_mac)
+
+        try:
+            await asyncio.wait_for(
+                self.mqtt_client.data_updated.wait(), timeout=5.0
+            )
+
+            if num_devices > 1:
+                await asyncio.sleep(2)
+
+            if self.mqtt_client.devices:
+                self._last_successful_communication = time.time()
+                self.devices = {**self.devices, **self.mqtt_client.devices}
+                self._logger.debug("Data received after keepalive wake")
+                return self.devices
+
+        except asyncio.TimeoutError:
+            self._logger.debug("No response within 5s (wake+read)")
+        except Exception as e:
+            self._logger.error("Error during wake+read: %s", e)
 
         return {}
 
@@ -382,13 +418,8 @@ class SydpowerConnector:
         command_bytes = get_read_modbus(modbus_addr, modbus_count)
         self.mqtt_client.publish_command(device_mac, command_bytes)
 
-    def _send_keepalive(self, device_mac: str) -> None:
-        """Wake the battery with a write, then send a read for full data.
-
-        The battery responds to a write command with a short ACK (1 register),
-        not a full state dump.  By following the write with an immediate read
-        request the battery is already "awake" and will respond with full data.
-        """
+    def _send_keepalive_write(self, device_mac: str) -> None:
+        """Send a write command to wake the battery (write-only, no read)."""
         if not self.mqtt_client:
             return
 
@@ -396,9 +427,7 @@ class SydpowerConnector:
         current_value = device_info.get("screenRestTime")
 
         if current_value is None:
-            # No cached data yet — just send a read
-            self._logger.debug("No cached screenRestTime, sending read instead")
-            self._send_read_request(device_mac)
+            self._logger.debug("No cached screenRestTime for keepalive")
             return
 
         modbus_addr = device_info.get(
@@ -415,9 +444,6 @@ class SydpowerConnector:
             )
         except ModbusValidationError:
             pass
-
-        # Follow immediately with a read — battery is now awake
-        self._send_read_request(device_mac)
 
     async def run_command(
         self, device_id: str, command: str, value=None
