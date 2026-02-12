@@ -12,10 +12,12 @@ from .modbus import (
     REGDisableDCOutput, REGEnableDCOutput, REGDisableACOutput,
     REGEnableACOutput, REGDisableLED, REGEnableLEDAlways,
     REGEnableLEDSOS, REGEnableLEDFlash, REGDisableACSilentChg,
-    REGEnableACSilentChg, get_write_modbus, ModbusValidationError,
+    REGEnableACSilentChg, get_read_modbus, get_write_modbus,
+    ModbusValidationError,
 )
 from .const import (
-    REGISTER_MODBUS_ADDRESS, MQTT_HOST_PROD, MQTT_HOST_DEV, MQTT_PORT,
+    REGISTER_MODBUS_ADDRESS, REGISTER_SCREEN_REST_TIME,
+    MQTT_HOST_PROD, MQTT_HOST_DEV, MQTT_PORT,
 )
 
 COMMANDS = {
@@ -252,7 +254,7 @@ class SydpowerConnector:
             self.mqtt_client.data_updated.clear()
 
             for device_id in device_ids:
-                self.mqtt_client.request_data_update(device_id)
+                self._send_read_request(device_id)
 
             await asyncio.wait_for(
                 self.mqtt_client.data_updated.wait(), timeout=5.0
@@ -297,59 +299,118 @@ class SydpowerConnector:
                 self._logger.error("Connection error: %s", e)
                 return {}
 
-        if self.mqtt_client:
-            self.mqtt_client.data_updated.clear()
-
         if not self.devices:
             self._logger.warning("No devices available to request data from")
             return {}
 
         num_devices = len(self.devices)
-        self._logger.debug(
-            "Publishing data request for %d device(s)", num_devices
+
+        # Step 1: Try a Modbus read request (works on first connect, but
+        # battery firmware often ignores subsequent reads).
+        data = await self._poll_devices(num_devices, method="read")
+        if data:
+            return data
+
+        # Step 2: Battery ignored the read — send a keepalive write
+        # (write a harmless register back to its current value).  Write
+        # commands always trigger a full state response.
+        data = await self._poll_devices(num_devices, method="keepalive")
+        if data:
+            return data
+
+        self._logger.warning(
+            "Device did not respond to read or keepalive. Devices: %s",
+            list(self.devices.keys()),
         )
+        return {}
+
+    async def _poll_devices(
+        self, num_devices: int, method: str = "read"
+    ) -> Dict[str, Any]:
+        """Send a data request and wait for a response.
+
+        method="read"      — Modbus read using per-device address/count
+        method="keepalive"  — write-back of a cached register value
+        """
+        if not self.mqtt_client:
+            return {}
+
+        self.mqtt_client.data_updated.clear()
 
         for device_mac in self.devices:
-            if self.mqtt_client:
-                self.mqtt_client.request_data_update(device_mac)
-            else:
-                self._logger.error("MQTT client became None unexpectedly")
+            if not self.mqtt_client:
                 return {}
 
-        try:
-            if not self.mqtt_client:
-                raise RuntimeError("MQTT client is None")
+            if method == "keepalive":
+                self._send_keepalive(device_mac)
+            else:
+                self._send_read_request(device_mac)
 
+        try:
             await asyncio.wait_for(
-                self.mqtt_client.data_updated.wait(), timeout=30.0
+                self.mqtt_client.data_updated.wait(), timeout=5.0
             )
 
-            # Grace period for remaining devices to respond
             if num_devices > 1:
                 await asyncio.sleep(2)
 
-            if not self.mqtt_client.devices:
-                self._logger.warning(
-                    "Data update event triggered but no device data received"
-                )
-                return {}
-
-            self._last_successful_communication = time.time()
-            self.devices = {**self.devices, **self.mqtt_client.devices}
-            return self.devices
+            if self.mqtt_client.devices:
+                self._last_successful_communication = time.time()
+                self.devices = {**self.devices, **self.mqtt_client.devices}
+                return self.devices
 
         except asyncio.TimeoutError:
-            self._logger.warning(
-                "Timeout waiting for device data update after 30 seconds. "
-                "Devices: %s",
-                list(self.devices.keys()),
+            self._logger.debug(
+                "No response within 5s (%s)", method
             )
-            return {}
         except Exception as e:
-            self._logger.error(
-                "Error waiting for device data update: %s", e
+            self._logger.error("Error during %s poll: %s", method, e)
+
+        return {}
+
+    def _send_read_request(self, device_mac: str) -> None:
+        """Send a Modbus read using per-device address and count from API."""
+        if not self.mqtt_client:
+            return
+
+        device_info = self.devices.get(device_mac, {})
+        modbus_addr = device_info.get(
+            "_modbus_address", REGISTER_MODBUS_ADDRESS
+        )
+        modbus_count = device_info.get("_modbus_count", 80)
+
+        command_bytes = get_read_modbus(modbus_addr, modbus_count)
+        self.mqtt_client.publish_command(device_mac, command_bytes)
+
+    def _send_keepalive(self, device_mac: str) -> None:
+        """Write a cached register value back to the device to wake it."""
+        if not self.mqtt_client:
+            return
+
+        device_info = self.devices.get(device_mac, {})
+        current_value = device_info.get("screenRestTime")
+
+        if current_value is None:
+            # No cached data yet — fall back to a read
+            self._logger.debug("No cached screenRestTime, sending read instead")
+            self._send_read_request(device_mac)
+            return
+
+        modbus_addr = device_info.get(
+            "_modbus_address", REGISTER_MODBUS_ADDRESS
+        )
+        try:
+            command_bytes = get_write_modbus(
+                modbus_addr, REGISTER_SCREEN_REST_TIME, int(current_value)
             )
-            return {}
+            self.mqtt_client.publish_command(device_mac, command_bytes)
+            self._logger.debug(
+                "Sent keepalive write (screenRestTime=%s) to %s",
+                current_value, device_mac,
+            )
+        except ModbusValidationError:
+            # Cached value somehow invalid — fall back to read
+            self._send_read_request(device_mac)
 
     async def run_command(
         self, device_id: str, command: str, value=None
