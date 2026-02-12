@@ -8,7 +8,7 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration to monitor
 
 > **Disclaimer** — This integration is unofficial and not affiliated with Fossibot, Sydpower, or BrightEMS. **Use at your own risk.** The authors are not responsible for any damage to your devices.
 
-[Join our Discord](https://discord.gg/NN6R5QNb) to help with development, report issues, or share feedback about your battery model.
+[Join our Discord](https://discord.gg/GPQ2bU5Q99) to help with development, report issues, or share feedback about your battery model.
 
 ---
 
