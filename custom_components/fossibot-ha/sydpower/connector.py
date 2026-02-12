@@ -383,7 +383,12 @@ class SydpowerConnector:
         self.mqtt_client.publish_command(device_mac, command_bytes)
 
     def _send_keepalive(self, device_mac: str) -> None:
-        """Write a cached register value back to the device to wake it."""
+        """Wake the battery with a write, then send a read for full data.
+
+        The battery responds to a write command with a short ACK (1 register),
+        not a full state dump.  By following the write with an immediate read
+        request the battery is already "awake" and will respond with full data.
+        """
         if not self.mqtt_client:
             return
 
@@ -391,7 +396,7 @@ class SydpowerConnector:
         current_value = device_info.get("screenRestTime")
 
         if current_value is None:
-            # No cached data yet — fall back to a read
+            # No cached data yet — just send a read
             self._logger.debug("No cached screenRestTime, sending read instead")
             self._send_read_request(device_mac)
             return
@@ -409,8 +414,10 @@ class SydpowerConnector:
                 current_value, device_mac,
             )
         except ModbusValidationError:
-            # Cached value somehow invalid — fall back to read
-            self._send_read_request(device_mac)
+            pass
+
+        # Follow immediately with a read — battery is now awake
+        self._send_read_request(device_mac)
 
     async def run_command(
         self, device_id: str, command: str, value=None

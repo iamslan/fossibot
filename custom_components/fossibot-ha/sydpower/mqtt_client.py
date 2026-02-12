@@ -202,8 +202,10 @@ class MQTTClient:
             ]
 
             if len(registers) < 57:
-                self._logger.warning(
-                    "Too few registers (%d) from %s", len(registers), topic
+                # Short responses (e.g. 1 register) are normal write ACKs
+                self._logger.debug(
+                    "Short response (%d registers) from %s — likely write ACK",
+                    len(registers), topic,
                 )
                 return
 
