@@ -15,7 +15,7 @@ from .modbus import (
     REGEnableACSilentChg, get_write_modbus, ModbusValidationError,
 )
 from .const import (
-    REGISTER_MODBUS_ADDRESS, MQTT_HOST_PROD, MQTT_HOST_DEV,
+    REGISTER_MODBUS_ADDRESS, MQTT_HOST_PROD, MQTT_HOST_DEV, MQTT_PORT,
 )
 
 COMMANDS = {
@@ -64,7 +64,7 @@ class SydpowerConnector:
 
     async def connect(self) -> bool:
         """Connect to the API and MQTT broker. Returns True if successful."""
-        mqtt_host = MQTT_HOST_DEV if self.developer_mode else MQTT_HOST_PROD
+        fallback_host = MQTT_HOST_DEV if self.developer_mode else MQTT_HOST_PROD
 
         if self._reconnection_in_progress:
             self._logger.debug(
@@ -117,10 +117,25 @@ class SydpowerConnector:
                 timeout=30.0,
             )
 
-            # Step 2: Get MQTT token
+            # Step 2: Get MQTT token and connection info
             self._logger.info("Getting MQTT token")
-            mqtt_token = await asyncio.wait_for(
+            mqtt_info = await asyncio.wait_for(
                 self.api_client.get_mqtt_token(), timeout=15.0
+            )
+            mqtt_token = mqtt_info["token"]
+            api_host = mqtt_info.get("mqtt_host")
+            mqtt_port = mqtt_info.get("mqtt_port", MQTT_PORT)
+
+            # Build candidate host list: API-provided first, fallback second
+            hosts_to_try = []
+            if api_host:
+                hosts_to_try.append(("API", api_host))
+            if not api_host or api_host != fallback_host:
+                hosts_to_try.append(("fallback", fallback_host))
+
+            self._logger.info(
+                "MQTT host candidates: %s",
+                [(src, h) for src, h in hosts_to_try],
             )
 
             # Step 3: Get devices
@@ -139,35 +154,40 @@ class SydpowerConnector:
                 "Found %d devices: %s", len(device_ids), device_ids
             )
 
-            # Step 4: Connect to MQTT
-            self._logger.info("Connecting to MQTT broker")
-            await self.mqtt_client.connect(mqtt_token, device_ids, mqtt_host)
-
-            try:
-                await asyncio.wait_for(
-                    self.mqtt_client.connected.wait(), timeout=15.0
+            # Step 4: Connect to MQTT — try each candidate host
+            for source, mqtt_host in hosts_to_try:
+                self._logger.info(
+                    "Trying MQTT %s host: %s:%d", source, mqtt_host, mqtt_port
                 )
-            except asyncio.TimeoutError:
-                self._logger.error("Timeout waiting for MQTT connection")
-                await self._cleanup()
-                return False
+                try:
+                    if await self._try_mqtt_connect(
+                        mqtt_token, device_ids, mqtt_host, mqtt_port
+                    ):
+                        self._last_successful_communication = time.time()
+                        self._logger.info(
+                            "Connected via %s host: %s", source, mqtt_host
+                        )
+                        return True
+                except Exception as e:
+                    self._logger.warning(
+                        "MQTT %s host %s failed: %s", source, mqtt_host, e
+                    )
+                    # Clean up the failed MQTT client before trying next host
+                    if self.mqtt_client:
+                        try:
+                            await asyncio.wait_for(
+                                self.mqtt_client.disconnect(), timeout=5.0
+                            )
+                        except Exception:
+                            pass
+                        self.mqtt_client = MQTTClient(self.loop)
+                        self.mqtt_client.on_disconnect_callback = (
+                            self._handle_mqtt_disconnect
+                        )
 
-            # Step 5: Verify connection works
-            try:
-                if not await asyncio.wait_for(
-                    self._verify_connection(), timeout=10.0
-                ):
-                    self._logger.error("Connection verification failed")
-                    await self._cleanup()
-                    return False
-            except asyncio.TimeoutError:
-                self._logger.error("Timeout during connection verification")
-                await self._cleanup()
-                return False
-
-            self._last_successful_communication = time.time()
-            self._logger.info("Connection successful and verified")
-            return True
+            self._logger.error("All MQTT host candidates failed")
+            await self._cleanup()
+            return False
 
         except asyncio.CancelledError:
             self._logger.warning("Connect operation was cancelled")
@@ -179,6 +199,45 @@ class SydpowerConnector:
         finally:
             if self._connection_lock.locked():
                 self._connection_lock.release()
+
+    async def _try_mqtt_connect(
+        self,
+        mqtt_token: str,
+        device_ids: list,
+        mqtt_host: str,
+        mqtt_port: int,
+    ) -> bool:
+        """Attempt MQTT connection to a single host. Returns True if verified."""
+        await self.mqtt_client.connect(
+            mqtt_token, device_ids, mqtt_host, mqtt_port
+        )
+
+        try:
+            await asyncio.wait_for(
+                self.mqtt_client.connected.wait(), timeout=15.0
+            )
+        except asyncio.TimeoutError:
+            self._logger.warning(
+                "Timeout waiting for MQTT connection to %s", mqtt_host
+            )
+            return False
+
+        # Verify the connection actually works (get data back)
+        try:
+            if not await asyncio.wait_for(
+                self._verify_connection(), timeout=10.0
+            ):
+                self._logger.warning(
+                    "Connection verification failed for %s", mqtt_host
+                )
+                return False
+        except asyncio.TimeoutError:
+            self._logger.warning(
+                "Verification timeout for %s", mqtt_host
+            )
+            return False
+
+        return True
 
     async def _verify_connection(self) -> bool:
         """Verify the connection is working by attempting to get data."""
@@ -331,9 +390,14 @@ class SydpowerConnector:
             command_bytes = COMMANDS[command]
         elif command == "write_register" and value is not None:
             register, reg_value = value
+            # Use per-device modbus address from API, fall back to constant
+            device_info = self.devices.get(device_id, {})
+            modbus_addr = device_info.get(
+                "_modbus_address", REGISTER_MODBUS_ADDRESS
+            )
             try:
                 command_bytes = get_write_modbus(
-                    REGISTER_MODBUS_ADDRESS, register, reg_value,
+                    modbus_addr, register, reg_value,
                 )
             except ModbusValidationError as e:
                 self._logger.error("Refused to write: %s", e)

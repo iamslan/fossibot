@@ -170,7 +170,9 @@ class APIClient:
             params=login_params,
             token=self._auth_token,
         )
-        self._access_token = login_resp.get("data", {}).get("token")
+        login_data = login_resp.get("data", {})
+        self._logger.debug("Login response keys: %s", list(login_data.keys()))
+        self._access_token = login_data.get("token")
 
         if not self._access_token:
             raise ValueError("Login failed - no token in response")
@@ -180,8 +182,12 @@ class APIClient:
             "access_token": self._access_token,
         }
 
-    async def get_mqtt_token(self) -> str:
-        """Get MQTT access token."""
+    async def get_mqtt_token(self) -> Dict[str, Any]:
+        """Get MQTT access token and connection info.
+
+        Returns a dict with at least ``token``.  May also contain
+        ``mqtt_host`` and ``mqtt_port`` if the API provides them.
+        """
         if not self._auth_token or not self._access_token:
             raise ValueError("Must authenticate first")
 
@@ -195,12 +201,45 @@ class APIClient:
             params=params,
             token=self._auth_token,
         )
-        mqtt_token = resp.get("data", {}).get("access_token")
+        data = resp.get("data", {})
 
+        self._logger.info(
+            "MQTT token response keys: %s", list(data.keys())
+        )
+        self._logger.debug("MQTT token response data: %s", data)
+
+        mqtt_token = data.get("access_token")
         if not mqtt_token:
             raise ValueError("Failed to get MQTT token")
 
-        return mqtt_token
+        # Try to extract MQTT host from response — field name unknown,
+        # so check common patterns used by EMQX cloud APIs.
+        mqtt_host = (
+            data.get("mqtt_host")
+            or data.get("host")
+            or data.get("mqttHost")
+            or data.get("server")
+            or data.get("endpoint")
+            or data.get("broker")
+            or data.get("url")
+            or data.get("addr")
+        )
+
+        mqtt_port = (
+            data.get("mqtt_port")
+            or data.get("port")
+            or data.get("mqttPort")
+        )
+
+        result: Dict[str, Any] = {"token": mqtt_token}
+        if mqtt_host:
+            self._logger.info("API returned MQTT host: %s", mqtt_host)
+            result["mqtt_host"] = mqtt_host
+        if mqtt_port:
+            self._logger.info("API returned MQTT port: %s", mqtt_port)
+            result["mqtt_port"] = int(mqtt_port)
+
+        return result
 
     async def get_devices(self) -> Dict[str, Any]:
         """Get list of devices."""
@@ -217,11 +256,24 @@ class APIClient:
             params=params,
             token=self._auth_token,
         )
-        devices = resp.get("data", {}).get("rows", [])
+        resp_data = resp.get("data", {})
+        self._logger.debug("Device list response keys: %s", list(resp_data.keys()))
+        devices = resp_data.get("rows", [])
+
+        if devices:
+            self._logger.debug(
+                "First device keys: %s", list(devices[0].keys())
+            )
 
         device_dict = {}
         for device in devices:
             dev_id = device.get("device_id", "").replace(":", "")
+            # Extract modbus info from productInfo for per-device addressing
+            product_info = device.get("productInfo", {})
+            if product_info.get("modbus_address") is not None:
+                device["_modbus_address"] = int(product_info["modbus_address"])
+            if product_info.get("modbus_count") is not None:
+                device["_modbus_count"] = int(product_info["modbus_count"])
             device_dict[dev_id] = device
 
         self._logger.debug("Found %d devices", len(device_dict))

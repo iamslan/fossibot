@@ -10,6 +10,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional
 import paho.mqtt.client as mqtt
 
 from .const import MQTT_HOST_PROD, MQTT_PORT, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
+
 from .logger import SmartLogger
 from .modbus import REGRequestSettings, parse_registers, high_low_to_int
 
@@ -59,11 +60,12 @@ class MQTTClient:
         mqtt_token: str,
         device_ids: List[str],
         mqtt_host: str = MQTT_HOST_PROD,
+        mqtt_port: int = MQTT_PORT,
     ) -> None:
         """Connect to MQTT broker and subscribe to device topics."""
         try:
             self._logger.debug(
-                "Starting MQTT connection to %s:%s", mqtt_host, MQTT_PORT
+                "Starting MQTT connection to %s:%s", mqtt_host, mqtt_port
             )
             self._is_disconnecting = False
             self.connected.clear()
@@ -94,7 +96,7 @@ class MQTTClient:
 
             self._device_ids = device_ids
 
-            self.mqtt_client.connect(mqtt_host, MQTT_PORT, keepalive=30)
+            self.mqtt_client.connect(mqtt_host, mqtt_port, keepalive=30)
             self.mqtt_client.loop_start()
 
             try:
