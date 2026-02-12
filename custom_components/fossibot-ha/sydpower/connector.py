@@ -17,7 +17,7 @@ from .modbus import (
 )
 from .const import (
     REGISTER_MODBUS_ADDRESS, REGISTER_SCREEN_REST_TIME,
-    MQTT_HOST_PROD, MQTT_HOST_DEV, MQTT_PORT,
+    MQTT_HOSTS_PROD, MQTT_HOSTS_DEV, MQTT_PORT,
 )
 
 COMMANDS = {
@@ -66,7 +66,7 @@ class SydpowerConnector:
 
     async def connect(self) -> bool:
         """Connect to the API and MQTT broker. Returns True if successful."""
-        fallback_host = MQTT_HOST_DEV if self.developer_mode else MQTT_HOST_PROD
+        fallback_hosts = MQTT_HOSTS_DEV if self.developer_mode else MQTT_HOSTS_PROD
 
         if self._reconnection_in_progress:
             self._logger.debug(
@@ -128,12 +128,13 @@ class SydpowerConnector:
             api_host = mqtt_info.get("mqtt_host")
             mqtt_port = mqtt_info.get("mqtt_port", MQTT_PORT)
 
-            # Build candidate host list: API-provided first, fallback second
+            # Build candidate host list: API-provided first, then fallbacks
             hosts_to_try = []
             if api_host:
                 hosts_to_try.append(("API", api_host))
-            if not api_host or api_host != fallback_host:
-                hosts_to_try.append(("fallback", fallback_host))
+            for fb_host in fallback_hosts:
+                if fb_host != api_host:
+                    hosts_to_try.append(("fallback", fb_host))
 
             self._logger.info(
                 "MQTT host candidates: %s",

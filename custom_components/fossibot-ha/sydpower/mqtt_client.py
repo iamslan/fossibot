@@ -9,7 +9,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import paho.mqtt.client as mqtt
 
-from .const import MQTT_HOST_PROD, MQTT_PORT, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
+from .const import MQTT_HOSTS_PROD, MQTT_PORT, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
 
 from .logger import SmartLogger
 from .modbus import REGRequestSettings, parse_registers, high_low_to_int
@@ -59,7 +59,7 @@ class MQTTClient:
         self,
         mqtt_token: str,
         device_ids: List[str],
-        mqtt_host: str = MQTT_HOST_PROD,
+        mqtt_host: str = MQTT_HOSTS_PROD[0],
         mqtt_port: int = MQTT_PORT,
     ) -> None:
         """Connect to MQTT broker and subscribe to device topics."""
