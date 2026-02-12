@@ -24,7 +24,7 @@ except ImportError:
 
 ENDPOINT = "https://api.next.bspapp.com/client"
 CLIENT_SECRET = "5rCEdl/nx7IgViBe4QYRiQ=="
-FALLBACK_HOST = "pro.emqx1-cluster1.sydpower.com"
+FALLBACK_HOST = "mqtt.sydpower.com"
 MQTT_PORT = 8083
 MQTT_PASSWORD = "helloyou"
 
