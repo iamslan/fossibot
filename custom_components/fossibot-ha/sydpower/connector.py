@@ -12,11 +12,11 @@ from .modbus import (
     REGDisableDCOutput, REGEnableDCOutput, REGDisableACOutput,
     REGEnableACOutput, REGDisableLED, REGEnableLEDAlways,
     REGEnableLEDSOS, REGEnableLEDFlash, REGDisableACSilentChg,
-    REGEnableACSilentChg, get_read_modbus, get_read_input_modbus,
+    REGEnableACSilentChg, get_read_modbus,
     get_write_modbus, ModbusValidationError,
 )
 from .const import (
-    REGISTER_MODBUS_ADDRESS, REGISTER_SCREEN_REST_TIME,
+    REGISTER_MODBUS_ADDRESS,
     MQTT_HOSTS_PROD, MQTT_HOSTS_DEV, MQTT_PORT,
 )
 
@@ -243,35 +243,39 @@ class SydpowerConnector:
         return True
 
     async def _verify_connection(self) -> bool:
-        """Verify the connection is working by attempting to get data."""
+        """Verify the connection by waiting for _on_connect's func 03 response.
+
+        _on_connect already publishes REGRequestSettings (func 03) which
+        triggers two responses: sensors on client/04 (~30ms) and settings
+        on client/data (~250ms).  We just wait for those to arrive.
+        """
         if not self.mqtt_client or not self.mqtt_client.connected.is_set():
             return False
 
-        device_ids = list(self.devices.keys())
-        if not device_ids:
-            return False
-
         try:
-            self.mqtt_client.data_updated.clear()
-
-            # Send sensor read (func 04) first
-            for device_id in device_ids:
-                self._send_sensor_read_request(device_id)
-
-            await asyncio.sleep(0.5)
-
-            # Then settings read (func 03)
-            for device_id in device_ids:
-                self._send_read_request(device_id)
-
             await asyncio.wait_for(
                 self.mqtt_client.data_updated.wait(), timeout=5.0
             )
-            self._logger.info("Connection verification successful")
+
+            # Settings response arrives ~250ms after sensors; give it time
+            await asyncio.sleep(1.0)
+
+            if self.mqtt_client.devices:
+                for mac, fields in self.mqtt_client.devices.items():
+                    if mac in self.devices:
+                        self.devices[mac].update(fields)
+                    else:
+                        self.devices[mac] = fields
+
+            self._logger.info(
+                "Connection verified — %d fields",
+                sum(len(v) for v in self.mqtt_client.devices.values())
+                if self.mqtt_client.devices else 0,
+            )
             return True
         except asyncio.TimeoutError:
             self._logger.warning(
-                "Connection verification timed out - no data received"
+                "Connection verification timed out — no data received"
             )
             return False
         except Exception as e:
@@ -311,100 +315,34 @@ class SydpowerConnector:
             self._logger.warning("No devices available to request data from")
             return {}
 
-        num_devices = len(self.devices)
-
-        # Step 1: Try a Modbus read request (works on first connect, but
-        # battery firmware often ignores subsequent reads).
-        data = await self._poll_devices(num_devices)
+        data = await self._poll_devices()
         if data:
             return data
 
-        # Step 2: Battery ignored the read — send a keepalive write to
-        # wake it, wait for the ACK, then try reading again.
-        data = await self._wake_and_read(num_devices)
-        if data:
-            return data
-
-        self._logger.warning(
-            "Device did not respond to read or keepalive. Devices: %s",
-            list(self.devices.keys()),
-        )
-        return {}
-
-    async def _poll_devices(self, num_devices: int) -> Dict[str, Any]:
-        """Send Modbus reads (sensors + settings) and wait for responses."""
-        if not self.mqtt_client:
-            return {}
-
-        self.mqtt_client.data_updated.clear()
-
-        # Send sensor read first (func 04) — SoC, power, output states
-        for device_mac in self.devices:
-            if not self.mqtt_client:
-                return {}
-            self._send_sensor_read_request(device_mac)
-
-        # Battery processes one command at a time — gap before next read
-        await asyncio.sleep(0.5)
-
-        # Send settings read (func 03) — charging rates, timers, etc.
-        for device_mac in self.devices:
-            if not self.mqtt_client:
-                return {}
-            self._send_read_request(device_mac)
-
-        try:
-            await asyncio.wait_for(
-                self.mqtt_client.data_updated.wait(), timeout=5.0
+        # Poll timed out — return cached data so the coordinator stays alive
+        if self.devices:
+            self._logger.debug(
+                "Poll timed out, returning cached data for %s",
+                list(self.devices.keys()),
             )
-
-            # Wait for both responses to arrive
-            await asyncio.sleep(1.0 if num_devices == 1 else 2.0)
-
-            if self.mqtt_client.devices:
-                self._last_successful_communication = time.time()
-                self.devices = {**self.devices, **self.mqtt_client.devices}
-                return self.devices
-
-        except asyncio.TimeoutError:
-            self._logger.debug("No response within 5s (read)")
-        except Exception as e:
-            self._logger.error("Error during read poll: %s", e)
+            return self.devices
 
         return {}
 
-    async def _wake_and_read(self, num_devices: int) -> Dict[str, Any]:
-        """Wake the battery with a write, wait for ACK, then read.
+    async def _poll_devices(self) -> Dict[str, Any]:
+        """Send func 03 read and wait for sensor + settings responses.
 
-        The battery firmware processes one command at a time.  Sending a
-        write and read simultaneously causes the read to be dropped.
-        Instead we send the write, wait for the ACK (~200ms), then send
-        sensor + settings reads sequentially.
+        Func 03 triggers two MQTT responses from the battery:
+          - sensors  on ``client/04``   (~30 ms)
+          - settings on ``client/data`` (~250 ms)
+        We clear the dedup cache first so the response is not swallowed.
         """
         if not self.mqtt_client:
             return {}
 
-        # Phase 1: send keepalive write and wait for the ACK
-        for device_mac in self.devices:
-            if not self.mqtt_client:
-                return {}
-            self._send_keepalive_write(device_mac)
-
-        # Give battery time to process write and send ACK
-        await asyncio.sleep(1.0)
-
-        # Phase 2: battery is awake — send sensor read (func 04) first
+        self.mqtt_client.clear_message_cache()
         self.mqtt_client.data_updated.clear()
 
-        for device_mac in self.devices:
-            if not self.mqtt_client:
-                return {}
-            self._send_sensor_read_request(device_mac)
-
-        # Gap before settings read
-        await asyncio.sleep(0.5)
-
-        # Phase 3: send settings read (func 03)
         for device_mac in self.devices:
             if not self.mqtt_client:
                 return {}
@@ -415,19 +353,22 @@ class SydpowerConnector:
                 self.mqtt_client.data_updated.wait(), timeout=5.0
             )
 
-            # Wait for both responses to arrive
-            await asyncio.sleep(1.0 if num_devices == 1 else 2.0)
+            # Settings response arrives ~250ms after sensors; give it time
+            await asyncio.sleep(1.0)
 
             if self.mqtt_client.devices:
                 self._last_successful_communication = time.time()
-                self.devices = {**self.devices, **self.mqtt_client.devices}
-                self._logger.debug("Data received after keepalive wake")
+                for mac, fields in self.mqtt_client.devices.items():
+                    if mac in self.devices:
+                        self.devices[mac].update(fields)
+                    else:
+                        self.devices[mac] = fields
                 return self.devices
 
         except asyncio.TimeoutError:
-            self._logger.debug("No response within 5s (wake+read)")
+            self._logger.debug("No response within 5s")
         except Exception as e:
-            self._logger.error("Error during wake+read: %s", e)
+            self._logger.error("Error during poll: %s", e)
 
         return {}
 
@@ -444,52 +385,6 @@ class SydpowerConnector:
 
         command_bytes = get_read_modbus(modbus_addr, modbus_count)
         self.mqtt_client.publish_command(device_mac, command_bytes)
-
-    def _send_sensor_read_request(self, device_mac: str) -> None:
-        """Send a Modbus read input registers (func 04) for sensor data.
-
-        Function code 04 returns SoC, power, and output states on the
-        ``client/04`` MQTT topic, unlike function code 03 which only
-        returns settings on ``client/data``.
-        """
-        if not self.mqtt_client:
-            return
-
-        device_info = self.devices.get(device_mac, {})
-        modbus_addr = device_info.get(
-            "_modbus_address", REGISTER_MODBUS_ADDRESS
-        )
-        modbus_count = device_info.get("_modbus_count", 80)
-
-        command_bytes = get_read_input_modbus(modbus_addr, modbus_count)
-        self.mqtt_client.publish_command(device_mac, command_bytes)
-
-    def _send_keepalive_write(self, device_mac: str) -> None:
-        """Send a write command to wake the battery (write-only, no read)."""
-        if not self.mqtt_client:
-            return
-
-        device_info = self.devices.get(device_mac, {})
-        current_value = device_info.get("screenRestTime")
-
-        if current_value is None:
-            self._logger.debug("No cached screenRestTime for keepalive")
-            return
-
-        modbus_addr = device_info.get(
-            "_modbus_address", REGISTER_MODBUS_ADDRESS
-        )
-        try:
-            command_bytes = get_write_modbus(
-                modbus_addr, REGISTER_SCREEN_REST_TIME, int(current_value)
-            )
-            self.mqtt_client.publish_command(device_mac, command_bytes)
-            self._logger.debug(
-                "Sent keepalive write (screenRestTime=%s) to %s",
-                current_value, device_mac,
-            )
-        except ModbusValidationError:
-            pass
 
     async def run_command(
         self, device_id: str, command: str, value=None

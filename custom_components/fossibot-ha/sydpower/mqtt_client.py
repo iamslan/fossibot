@@ -290,6 +290,11 @@ class MQTTClient:
         """Register a custom message handler for a device."""
         self._message_handlers[device_id] = handler
 
+    def clear_message_cache(self) -> None:
+        """Clear the deduplication cache so the next response is not swallowed."""
+        with self._message_cache_lock:
+            self._message_cache.clear()
+
     def request_data_update(self, device_id: str) -> None:
         """Request a data update from a device."""
         self.publish_command(device_id, REGRequestSettings)
