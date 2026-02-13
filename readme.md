@@ -25,14 +25,21 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration to monitor
 
 ## Supported Devices
 
-Compatible with power stations that work with the **BrightEMS** app. Tested on:
+Compatible with power stations that use the **BrightEMS** app. All these brands share the same **SYDPOWER** platform:
 
-| Model | Status |
-|-------|--------|
-| Fossibot F2400 | Working |
-| Fossibot F3600 Pro | Working |
+| Brand | Models | Evidence |
+|-------|--------|----------|
+| **FOSSiBOT** | F2400, F3600, F3600 Pro, F1200 | Uses BrightEMS app, confirmed by multiple GitHub reverse-engineering projects |
+| **AFERIY** | P210, P310 | Uses BrightEMS app, identical specs to Fossibot F2400/F3600 |
+| **Eco Play (ECOPLAY)** | SYD2400, SYD3600, 3600 Pro | Literally uses "SYD" in model names, uses BrightEMS app, expansion battery called "SYD3600-Extra" |
+| **ABOK Power** | Ark3600 | Uses BrightEMS app, listed as compatible in ESP-FBot project |
 
-Other Fossibot / Sydpower models likely work — please report your results on Discord or GitHub Issues.
+### Model cross-reference (SYDPOWER internal model -> brand equivalents)
+
+- **SYDPOWER N052** (2400W/2048Wh) -> FOSSiBOT F2400 -> AFERIY P210 -> Eco Play SYD2400
+- **SYDPOWER N051/N066** (3600W/3840Wh) -> FOSSiBOT F3600 Pro -> AFERIY P310 -> Eco Play SYD3600 -> ABOK Ark3600
+
+If your BrightEMS-compatible model is not listed, please report your results on Discord or GitHub Issues.
 
 ## Installation
 
