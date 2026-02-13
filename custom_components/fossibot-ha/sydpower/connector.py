@@ -250,11 +250,17 @@ class SydpowerConnector:
         on client/data (~250ms).  We just wait for those to arrive.
         """
         if not self.mqtt_client or not self.mqtt_client.connected.is_set():
+            self._logger.debug("verify_connection: not connected, skipping")
             return False
+
+        self._logger.debug("Waiting for _on_connect func 03 response...")
 
         try:
             await asyncio.wait_for(
                 self.mqtt_client.data_updated.wait(), timeout=5.0
+            )
+            self._logger.debug(
+                "First response received, waiting 1s for settings..."
             )
 
             # Settings response arrives ~250ms after sensors; give it time
@@ -267,10 +273,21 @@ class SydpowerConnector:
                     else:
                         self.devices[mac] = fields
 
+            field_count = sum(
+                len(v) for v in self.mqtt_client.devices.values()
+            ) if self.mqtt_client.devices else 0
+
+            # Log per-device field names for debugging
+            for mac, fields in (self.mqtt_client.devices or {}).items():
+                self._logger.debug(
+                    "Verify %s: %d fields — %s",
+                    mac, len(fields), sorted(fields.keys()),
+                )
+
             self._logger.info(
-                "Connection verified — %d fields",
-                sum(len(v) for v in self.mqtt_client.devices.values())
-                if self.mqtt_client.devices else 0,
+                "Connection verified — %d fields across %d device(s)",
+                field_count,
+                len(self.mqtt_client.devices) if self.mqtt_client.devices else 0,
             )
             return True
         except asyncio.TimeoutError:
@@ -321,12 +338,17 @@ class SydpowerConnector:
 
         # Poll timed out — return cached data so the coordinator stays alive
         if self.devices:
-            self._logger.debug(
-                "Poll timed out, returning cached data for %s",
-                list(self.devices.keys()),
+            cached_fields = {
+                mac: len([k for k in d if not k.startswith("_")])
+                for mac, d in self.devices.items()
+                if isinstance(d, dict)
+            }
+            self._logger.warning(
+                "Poll timed out, returning cached data: %s", cached_fields
             )
             return self.devices
 
+        self._logger.warning("Poll timed out and no cached data available")
         return {}
 
     async def _poll_devices(self) -> Dict[str, Any]:
@@ -342,6 +364,10 @@ class SydpowerConnector:
 
         self.mqtt_client.clear_message_cache()
         self.mqtt_client.data_updated.clear()
+        self._logger.debug(
+            "Poll: cache cleared, sending func 03 to %s",
+            list(self.devices.keys()),
+        )
 
         for device_mac in self.devices:
             if not self.mqtt_client:
@@ -351,6 +377,9 @@ class SydpowerConnector:
         try:
             await asyncio.wait_for(
                 self.mqtt_client.data_updated.wait(), timeout=5.0
+            )
+            self._logger.debug(
+                "Poll: first response arrived, waiting 1s for settings..."
             )
 
             # Settings response arrives ~250ms after sensors; give it time
@@ -363,10 +392,24 @@ class SydpowerConnector:
                         self.devices[mac].update(fields)
                     else:
                         self.devices[mac] = fields
+
+                # Log per-device field count for diagnostics
+                for mac in self.devices:
+                    data = self.devices.get(mac, {})
+                    # Count only non-internal fields
+                    user_fields = [
+                        k for k in data if not k.startswith("_")
+                    ]
+                    self._logger.debug(
+                        "Poll result %s: %d fields — %s",
+                        mac, len(user_fields), sorted(user_fields),
+                    )
                 return self.devices
 
         except asyncio.TimeoutError:
-            self._logger.debug("No response within 5s")
+            self._logger.debug(
+                "Poll: no response within 5s (device may be offline)"
+            )
         except Exception as e:
             self._logger.error("Error during poll: %s", e)
 
@@ -385,6 +428,10 @@ class SydpowerConnector:
 
         command_bytes = get_read_modbus(modbus_addr, modbus_count)
         self.mqtt_client.publish_command(device_mac, command_bytes)
+        self._logger.debug(
+            "Sent func 03 to %s (addr=%d, count=%d)",
+            device_mac, modbus_addr, modbus_count,
+        )
 
     async def run_command(
         self, device_id: str, command: str, value=None

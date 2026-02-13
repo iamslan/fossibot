@@ -156,6 +156,9 @@ class MQTTClient:
                 bytes(REGRequestSettings),
                 qos=1,
             )
+            self._logger.debug(
+                "Published func 03 request to %s on connect", device_mac
+            )
 
         self.loop.call_soon_threadsafe(self.connected.set)
 
@@ -181,6 +184,12 @@ class MQTTClient:
                     self._last_cache_cleanup = current_time
 
                 if message_id in self._message_cache:
+                    age = current_time - self._message_cache[message_id]
+                    self._logger.debug(
+                        "Dedup: dropping duplicate on %s (%.1fs old)",
+                        topic.split("/", 1)[1] if "/" in topic else topic,
+                        age,
+                    )
                     return
                 self._message_cache[message_id] = current_time
 
@@ -220,11 +229,21 @@ class MQTTClient:
 
             device_update = parse_registers(registers, topic)
 
+            # Determine topic type for logging
+            if "client/04" in topic:
+                topic_tag = "sensors"
+            elif "client/data" in topic:
+                topic_tag = "settings"
+            else:
+                topic_tag = "other"
+
             if device_update:
                 self._logger.debug(
-                    "Device %s update: %d fields parsed",
+                    "Device %s [%s]: %d fields — %s",
                     device_mac,
+                    topic_tag,
                     len(device_update),
+                    sorted(device_update.keys()),
                 )
                 asyncio.run_coroutine_threadsafe(
                     self._update_device_data(device_mac, device_update),
@@ -246,6 +265,11 @@ class MQTTClient:
             self.devices[device_mac].update(device_update)
             self._last_successful_communication = time.time()
             self.data_updated.set()
+            self._logger.debug(
+                "Device %s total: %d fields accumulated",
+                device_mac,
+                len(self.devices[device_mac]),
+            )
 
     def _on_disconnect(self, client, userdata, rc):
         """Handle MQTT disconnection."""
