@@ -243,24 +243,28 @@ class SydpowerConnector:
         return True
 
     async def _verify_connection(self) -> bool:
-        """Verify the connection by waiting for _on_connect's func 03 response.
+        """Verify the connection by testing device responsiveness.
 
-        _on_connect already publishes REGRequestSettings (func 03) which
-        triggers two responses: sensors on client/04 (~30ms) and settings
-        on client/data (~250ms).  We just wait for those to arrive.
+        Two-stage verification:
+        1. Wait for _on_connect's func 03 response (confirms broker reachability)
+        2. Send a fresh poll to test if device actively responds (not just cached data)
+
+        This prevents accepting a host where the device ID exists but device
+        traffic routes through a different broker.
         """
         if not self.mqtt_client or not self.mqtt_client.connected.is_set():
             self._logger.debug("verify_connection: not connected, skipping")
             return False
 
-        self._logger.debug("Waiting for _on_connect func 03 response...")
+        self._logger.debug("Stage 1: waiting for _on_connect func 03 response...")
 
         try:
+            # Stage 1: Wait for _on_connect's initial func 03 response
             await asyncio.wait_for(
                 self.mqtt_client.data_updated.wait(), timeout=5.0
             )
             self._logger.debug(
-                "First response received, waiting 1s for settings..."
+                "Initial response received, waiting 1s for settings..."
             )
 
             # Settings response arrives ~250ms after sensors; give it time
@@ -280,19 +284,52 @@ class SydpowerConnector:
             # Log per-device field names for debugging
             for mac, fields in (self.mqtt_client.devices or {}).items():
                 self._logger.debug(
-                    "Verify %s: %d fields — %s",
+                    "Verify stage 1: %s returned %d fields — %s",
                     mac, len(fields), sorted(fields.keys()),
                 )
 
-            self._logger.info(
-                "Connection verified — %d fields across %d device(s)",
+            if field_count == 0:
+                self._logger.warning("Stage 1 received no fields, failing")
+                return False
+
+            self._logger.debug(
+                "Stage 1 complete: %d fields. Starting stage 2 (fresh poll)...",
                 field_count,
-                len(self.mqtt_client.devices) if self.mqtt_client.devices else 0,
+            )
+
+            # Stage 2: Send a fresh poll to test active device responsiveness
+            # Clear cache to ensure we're not accepting cached/stale broker data
+            self.mqtt_client.clear_message_cache()
+            self.mqtt_client.data_updated.clear()
+
+            for device_mac in list(self.devices.keys()):
+                self._send_read_request(device_mac)
+
+            await asyncio.wait_for(
+                self.mqtt_client.data_updated.wait(), timeout=5.0
+            )
+            await asyncio.sleep(1.0)  # Wait for both sensor + settings responses
+
+            fresh_field_count = sum(
+                len(v) for v in self.mqtt_client.devices.values()
+            ) if self.mqtt_client.devices else 0
+
+            if fresh_field_count == 0:
+                self._logger.warning(
+                    "Stage 2 failed: device did not respond to fresh poll "
+                    "(may be on different broker)"
+                )
+                return False
+
+            self._logger.info(
+                "Connection verified — stage 1: %d fields, stage 2: %d fields",
+                field_count, fresh_field_count,
             )
             return True
+
         except asyncio.TimeoutError:
             self._logger.warning(
-                "Connection verification timed out — no data received"
+                "Connection verification timed out (device not responding)"
             )
             return False
         except Exception as e:
