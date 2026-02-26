@@ -267,7 +267,15 @@ class APIClient:
 
         device_dict = {}
         for device in devices:
-            dev_id = device.get("device_id", "").replace(":", "")
+            raw_id = device.get("device_id") or ""
+            dev_id = raw_id.replace(":", "")
+            if not dev_id:
+                self._logger.warning(
+                    "Device '%s' has no device_id in API response — skipping. "
+                    "Re-register the device in the Fossibot/BrightEMS app to fix this.",
+                    device.get("device_name", "<unknown>"),
+                )
+                continue
             # Extract modbus info from productInfo for per-device addressing
             product_info = device.get("productInfo", {})
             if product_info.get("modbus_address") is not None:
