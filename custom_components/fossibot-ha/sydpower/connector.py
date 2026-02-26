@@ -188,6 +188,20 @@ class SydpowerConnector:
                             self._handle_mqtt_disconnect
                         )
 
+            # All hosts failed device-response verification.
+            # If the broker TCP connection is still up from the last attempt,
+            # accept it — the device may be offline/sleeping.  Polls will
+            # recover automatically once the device is reachable again.
+            if self.mqtt_client and self.mqtt_client.connected.is_set():
+                last_host = hosts_to_try[-1][1] if hosts_to_try else "unknown"
+                self._logger.warning(
+                    "Device not responding on any broker — accepting broker "
+                    "connection to %s. Integration will recover automatically "
+                    "when device is reachable.", last_host,
+                )
+                self._last_successful_communication = time.time()
+                return True
+
             self._logger.error("All MQTT host candidates failed")
             await self._cleanup()
             return False
