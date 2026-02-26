@@ -172,6 +172,11 @@ class APIClient:
         )
         login_data = login_resp.get("data", {})
         self._logger.debug("Login response keys: %s", list(login_data.keys()))
+        self._logger.debug(
+            "Login uid=%s errCode=%s",
+            login_data.get("uid") or login_data.get("user_id"),
+            login_data.get("errCode") or login_data.get("code"),
+        )
         self._access_token = login_data.get("token")
 
         if not self._access_token:
@@ -258,6 +263,12 @@ class APIClient:
         )
         resp_data = resp.get("data", {})
         self._logger.debug("Device list response keys: %s", list(resp_data.keys()))
+        self._logger.debug(
+            "Device list totals: total=%s hasMore=%s rows=%s",
+            resp_data.get("total"),
+            resp_data.get("hasMore"),
+            len(resp_data.get("rows", [])),
+        )
         devices = resp_data.get("rows", [])
 
         if devices:
@@ -269,15 +280,32 @@ class APIClient:
         for device in devices:
             raw_id = device.get("device_id") or ""
             dev_id = raw_id.replace(":", "")
+            name = device.get("device_name", "<unknown>")
+            self._logger.debug(
+                "Device '%s': raw device_id=%r → mac=%r  product_type=%s",
+                name,
+                raw_id,
+                dev_id,
+                device.get("productInfo", {}).get("product_type"),
+            )
             if not dev_id:
                 self._logger.warning(
                     "Device '%s' has no device_id in API response — skipping. "
                     "Re-register the device in the Fossibot/BrightEMS app to fix this.",
-                    device.get("device_name", "<unknown>"),
+                    name,
+                )
+                self._logger.debug(
+                    "Device '%s' full API record: %s", name, device
                 )
                 continue
             # Extract modbus info from productInfo for per-device addressing
             product_info = device.get("productInfo", {})
+            self._logger.debug(
+                "Device '%s' productInfo: address=%s count=%s",
+                name,
+                product_info.get("modbus_address"),
+                product_info.get("modbus_count"),
+            )
             if product_info.get("modbus_address") is not None:
                 device["_modbus_address"] = int(product_info["modbus_address"])
             if product_info.get("modbus_count") is not None:
