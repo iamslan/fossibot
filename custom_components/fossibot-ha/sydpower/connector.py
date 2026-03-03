@@ -40,11 +40,26 @@ COMMANDS = {
 class SydpowerConnector:
     """Main class for Fossibot/Sydpower API connection."""
 
-    def __init__(self, username: str, password: str, developer_mode: bool = False):
+    def __init__(
+        self,
+        username: str = None,
+        password: str = None,
+        developer_mode: bool = False,
+        connection_mode: str = "cloud",
+        mqtt_host: str = None,
+        mqtt_port: int = MQTT_PORT,
+        device_mac: str = None,
+    ):
         self.username = username
         self.password = password
         self.developer_mode = developer_mode
         self._logger = SmartLogger(__name__)
+
+        # Connection mode
+        self._connection_mode = connection_mode
+        self._local_mqtt_host = mqtt_host
+        self._local_mqtt_port = mqtt_port
+        self._local_device_mac = device_mac
 
         self.api_client: Optional[APIClient] = None
         self.mqtt_client: Optional[MQTTClient] = None
@@ -64,8 +79,139 @@ class SydpowerConnector:
         # Last successful connection timestamp
         self._last_successful_communication = 0
 
+    @property
+    def is_local_mqtt(self) -> bool:
+        """Return True if using local MQTT mode."""
+        return self._connection_mode == "local_mqtt"
+
     async def connect(self) -> bool:
         """Connect to the API and MQTT broker. Returns True if successful."""
+        if self.is_local_mqtt:
+            return await self._connect_local_mqtt()
+        return await self._connect_cloud()
+
+    async def _connect_local_mqtt(self) -> bool:
+        """Connect directly to a local MQTT broker, bypassing the cloud API."""
+        if self._reconnection_in_progress:
+            self._logger.debug(
+                "Connection attempt while reconnection in progress, waiting..."
+            )
+            try:
+                await asyncio.wait_for(
+                    self._reconnection_event.wait(), timeout=15.0
+                )
+            except asyncio.TimeoutError:
+                self._logger.error("Timeout waiting for reconnection")
+                return False
+
+            if self.mqtt_client and self.mqtt_client.connected.is_set():
+                return True
+
+        if self.mqtt_client and self.mqtt_client.connected.is_set():
+            return True
+
+        try:
+            lock_acquired = await asyncio.wait_for(
+                self._connection_lock.acquire(), timeout=10.0
+            )
+        except asyncio.TimeoutError:
+            self._logger.error("Timeout acquiring connection lock")
+            return False
+
+        if not lock_acquired:
+            return False
+
+        try:
+            if self.loop is None:
+                self.loop = asyncio.get_running_loop()
+
+            if self.mqtt_client is None:
+                self.mqtt_client = MQTTClient(self.loop)
+                self.mqtt_client.on_disconnect_callback = (
+                    self._handle_mqtt_disconnect
+                )
+
+            device_mac = self._local_device_mac
+            mqtt_host = self._local_mqtt_host
+            mqtt_port = self._local_mqtt_port
+
+            # Build device dict with defaults
+            self.devices = {
+                device_mac: {
+                    "_modbus_address": REGISTER_MODBUS_ADDRESS,
+                    "_modbus_count": 80,
+                }
+            }
+
+            device_ids = [device_mac]
+
+            self._logger.info(
+                "Local MQTT: connecting to %s:%d for device %s",
+                mqtt_host, mqtt_port, device_mac,
+            )
+
+            # Use "anonymous" as token — local EMQX accepts any credentials
+            mqtt_token = "anonymous"
+
+            await self.mqtt_client.connect(
+                mqtt_token, device_ids, mqtt_host, mqtt_port
+            )
+
+            try:
+                await asyncio.wait_for(
+                    self.mqtt_client.connected.wait(), timeout=15.0
+                )
+            except asyncio.TimeoutError:
+                self._logger.error(
+                    "Timeout waiting for MQTT connection to %s", mqtt_host
+                )
+                await self._cleanup()
+                return False
+
+            # Try to verify the device responds
+            try:
+                verified = await asyncio.wait_for(
+                    self._verify_connection(), timeout=10.0
+                )
+                if verified:
+                    self._last_successful_communication = time.time()
+                    self._logger.info(
+                        "Local MQTT: connected and verified on %s:%d",
+                        mqtt_host, mqtt_port,
+                    )
+                    return True
+            except asyncio.TimeoutError:
+                self._logger.warning(
+                    "Local MQTT: verification timeout for %s", mqtt_host
+                )
+
+            # Accept broker connection even if device didn't respond
+            # (device may be off/sleeping)
+            if self.mqtt_client and self.mqtt_client.connected.is_set():
+                self._logger.warning(
+                    "Local MQTT: device not responding — accepting broker "
+                    "connection. Will recover when device is reachable."
+                )
+                self._last_successful_communication = time.time()
+                return True
+
+            self._logger.error("Local MQTT: connection failed")
+            await self._cleanup()
+            return False
+
+        except asyncio.CancelledError:
+            self._logger.warning("Connect operation was cancelled")
+            raise
+        except Exception as e:
+            self._logger.error("Error during local MQTT connection: %s", e)
+            await self._cleanup()
+            return False
+        finally:
+            if self._connection_lock.locked():
+                self._connection_lock.release()
+
+    async def _connect_cloud(self) -> bool:
+        """Connect via cloud API (original flow)."""
         fallback_hosts = MQTT_HOSTS_DEV if self.developer_mode else MQTT_HOSTS_PROD
 
         if self._reconnection_in_progress:
