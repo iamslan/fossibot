@@ -4,6 +4,12 @@
             "user": {
                 "title": "Connect to Fossibot",
                 "data": {
+                    "connection_mode": "Connection mode"
+                }
+            },
+            "cloud": {
+                "title": "Cloud API Credentials",
+                "data": {
                     "username": "Username",
                     "password": "Password",
                     "show_advanced": "Show advanced options"
@@ -13,6 +19,15 @@
                 "title": "Advanced Options",
                 "data": {
                     "developer_mode": "Enable developer mode (connects to test environment)"
+                }
+            },
+            "local_mqtt": {
+                "title": "Local MQTT Configuration",
+                "description": "Connect directly to a local EMQX broker. Find the device MAC address in the EMQX dashboard under Monitoring > Clients.",
+                "data": {
+                    "mqtt_host": "MQTT broker IP address",
+                    "mqtt_port": "MQTT broker port",
+                    "device_mac": "Device MAC address (e.g. AABBCCDDEEFF)"
                 }
             },
             "reauth_confirm": {
@@ -25,7 +40,9 @@
             }
         },
         "error": {
-            "cannot_connect": "Failed to connect, please check credentials"
+            "cannot_connect": "Failed to connect, please check your settings",
+            "invalid_host": "Invalid MQTT broker address",
+            "invalid_mac": "Invalid MAC address. Use 12 hex characters (e.g. AABBCCDDEEFF)"
         },
         "abort": {
             "reauth_successful": "Reauthentication successful"

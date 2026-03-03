@@ -12,7 +12,14 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    CONF_CONNECTION_MODE,
+    CONNECTION_MODE_LOCAL,
+    CONF_MQTT_HOST,
+    CONF_MQTT_PORT,
+    CONF_DEVICE_MAC,
+)
 from .sydpower.connector import SydpowerConnector
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,11 +42,21 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=update_interval,
         )
 
-        self.connector = SydpowerConnector(
-            config.get("username"),
-            config.get("password"),
-            developer_mode=config.get("developer_mode", False),
-        )
+        connection_mode = config.get(CONF_CONNECTION_MODE, "cloud")
+
+        if connection_mode == CONNECTION_MODE_LOCAL:
+            self.connector = SydpowerConnector(
+                connection_mode=CONNECTION_MODE_LOCAL,
+                mqtt_host=config.get(CONF_MQTT_HOST),
+                mqtt_port=config.get(CONF_MQTT_PORT, 8083),
+                device_mac=config.get(CONF_DEVICE_MAC),
+            )
+        else:
+            self.connector = SydpowerConnector(
+                username=config.get("username"),
+                password=config.get("password"),
+                developer_mode=config.get("developer_mode", False),
+            )
         self._shutdown_event = asyncio.Event()
         self._failed_updates_count = 0
         self._last_successful_update = time.time()
