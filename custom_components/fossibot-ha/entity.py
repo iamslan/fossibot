@@ -26,8 +26,11 @@ class FossibotEntity(CoordinatorEntity):
     @property
     def device_info(self):
         """Return device information."""
+        # Use device_name from API if available
+        device_data = self.coordinator.data.get(self._device_id, {})
+        name = device_data.get("device_name") or f"Fossibot {self._device_id}"
         return {
             "identifiers": {(DOMAIN, self._device_id)},
-            "name": f"Fossibot {self._device_id}",
+            "name": name,
             "manufacturer": MANUFACTURER,
         }

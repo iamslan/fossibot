@@ -1,20 +1,11 @@
 
-# API Settings
-ENDPOINT = "https://api.next.bspapp.com/client"
-CLIENT_SECRET = "5rCEdl/nx7IgViBe4QYRiQ=="
+# New SYDPOWER Local MQTT API
+API_BASE_URL = "https://api.app.sydpower.com/http/router/client/device"
+API_GET_DEVICE_LIST = f"{API_BASE_URL}/saas.pub_getDeviceList"
+API_UPDATE_MQTT_STATE = f"{API_BASE_URL}/saas.pub_updateMqttState"
 
-# MQTT Settings — multiple hosts tried in order during connection
-MQTT_HOSTS_PROD = [
-    "pro.emqx1-cluster1.sydpower.com",
-    "mqtt.sydpower.com",
-]
-MQTT_HOSTS_DEV = [
-    "dev.emqx1-cluster1.sydpower.com",
-    "dev.mqtt.sydpower.com",
-]
-MQTT_PORT = 8083
-MQTT_PASSWORD = "helloyou"
-MQTT_WEBSOCKET_PATH = "/mqtt"
+# Default MQTT port for local broker
+DEFAULT_MQTT_PORT = 1883
 
 # Register definitions
 REGISTER_MODBUS_ADDRESS = 17

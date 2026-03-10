@@ -9,12 +9,11 @@
     "documentation": "https://github.com/iamslan/fossibot",
     "dependencies": [],
     "integration_type": "hub",
-    "iot_class": "cloud_polling",
+    "iot_class": "local_polling",
     "issue_tracker": "https://github.com/iamslan/fossibot/issues",
     "requirements": [
-        "paho-mqtt[websockets]>=1.6.1",
-        "websockets>=11.0.3",
+        "paho-mqtt>=1.6.1",
         "aiohttp>=3.8.0"
     ],
-    "version": "1.0.15"
+    "version": "2.0.0"
 }

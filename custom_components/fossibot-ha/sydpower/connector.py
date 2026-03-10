@@ -1,4 +1,4 @@
-"""Main connector for Fossibot/Sydpower integration."""
+"""Main connector for Fossibot/Sydpower integration via local MQTT broker."""
 
 import asyncio
 import time
@@ -15,10 +15,7 @@ from .modbus import (
     REGEnableACSilentChg, get_read_modbus,
     get_write_modbus, ModbusValidationError,
 )
-from .const import (
-    REGISTER_MODBUS_ADDRESS,
-    MQTT_HOSTS_PROD, MQTT_HOSTS_DEV, MQTT_PORT,
-)
+from .const import REGISTER_MODBUS_ADDRESS, DEFAULT_MQTT_PORT
 
 COMMANDS = {
     "REGRequestSettings": REGRequestSettings,
@@ -38,12 +35,19 @@ COMMANDS = {
 
 
 class SydpowerConnector:
-    """Main class for Fossibot/Sydpower API connection."""
+    """Main class for Fossibot/Sydpower connection via local MQTT broker."""
 
-    def __init__(self, username: str, password: str, developer_mode: bool = False):
-        self.username = username
-        self.password = password
-        self.developer_mode = developer_mode
+    def __init__(
+        self,
+        api_token: str,
+        mqtt_host: str,
+        mqtt_port: int = DEFAULT_MQTT_PORT,
+        mqtt_username: str = "",
+    ):
+        self.api_token = api_token
+        self.mqtt_host = mqtt_host
+        self.mqtt_port = mqtt_port
+        self.mqtt_username = mqtt_username
         self._logger = SmartLogger(__name__)
 
         self.api_client: Optional[APIClient] = None
@@ -54,7 +58,7 @@ class SydpowerConnector:
         self._connection_lock = asyncio.Lock()
         self._reconnection_in_progress = False
         self._reconnection_event = asyncio.Event()
-        self._reconnection_event.set()  # Initially set so get_data doesn't block
+        self._reconnection_event.set()
         self._last_reconnection_attempt = 0
         self._min_reconnection_interval = 5
 
@@ -65,9 +69,7 @@ class SydpowerConnector:
         self._last_successful_communication = 0
 
     async def connect(self) -> bool:
-        """Connect to the API and MQTT broker. Returns True if successful."""
-        fallback_hosts = MQTT_HOSTS_DEV if self.developer_mode else MQTT_HOSTS_PROD
-
+        """Connect to the API and local MQTT broker. Returns True if successful."""
         if self._reconnection_in_progress:
             self._logger.debug(
                 "Connection attempt while reconnection in progress, waiting..."
@@ -104,45 +106,19 @@ class SydpowerConnector:
                 self.loop = asyncio.get_running_loop()
 
             if self.api_client is None:
-                self.api_client = APIClient()
+                self.api_client = APIClient(self.api_token)
 
             if self.mqtt_client is None:
                 self.mqtt_client = MQTTClient(self.loop)
                 self.mqtt_client.on_disconnect_callback = (
                     self._handle_mqtt_disconnect
                 )
+                self.mqtt_client.on_device_state_callback = (
+                    self._handle_device_state
+                )
 
-            # Step 1: Authenticate with API
-            self._logger.info("Authenticating with API")
-            await asyncio.wait_for(
-                self.api_client.authenticate(self.username, self.password),
-                timeout=30.0,
-            )
-
-            # Step 2: Get MQTT token and connection info
-            self._logger.info("Getting MQTT token")
-            mqtt_info = await asyncio.wait_for(
-                self.api_client.get_mqtt_token(), timeout=15.0
-            )
-            mqtt_token = mqtt_info["token"]
-            api_host = mqtt_info.get("mqtt_host")
-            mqtt_port = mqtt_info.get("mqtt_port", MQTT_PORT)
-
-            # Build candidate host list: API-provided first, then fallbacks
-            hosts_to_try = []
-            if api_host:
-                hosts_to_try.append(("API", api_host))
-            for fb_host in fallback_hosts:
-                if fb_host != api_host:
-                    hosts_to_try.append(("fallback", fb_host))
-
-            self._logger.info(
-                "MQTT host candidates: %s",
-                [(src, h) for src, h in hosts_to_try],
-            )
-
-            # Step 3: Get devices
-            self._logger.info("Getting device list")
+            # Step 1: Get device list from API
+            self._logger.info("Getting device list from API")
             self.devices = await asyncio.wait_for(
                 self.api_client.get_devices(), timeout=15.0
             )
@@ -157,52 +133,50 @@ class SydpowerConnector:
                 "Found %d devices: %s", len(device_ids), device_ids
             )
 
-            # Step 4: Connect to MQTT — try each candidate host
-            for source, mqtt_host in hosts_to_try:
-                self._logger.info(
-                    "Trying MQTT %s host: %s:%d", source, mqtt_host, mqtt_port
-                )
-                try:
-                    if await self._try_mqtt_connect(
-                        mqtt_token, device_ids, mqtt_host, mqtt_port
-                    ):
-                        self._last_successful_communication = time.time()
-                        self._logger.info(
-                            "Connected via %s host: %s", source, mqtt_host
-                        )
-                        return True
-                except Exception as e:
-                    self._logger.warning(
-                        "MQTT %s host %s failed: %s", source, mqtt_host, e
-                    )
-                    # Clean up the failed MQTT client before trying next host
-                    if self.mqtt_client:
-                        try:
-                            await asyncio.wait_for(
-                                self.mqtt_client.disconnect(), timeout=5.0
-                            )
-                        except Exception:
-                            pass
-                        self.mqtt_client = MQTTClient(self.loop)
-                        self.mqtt_client.on_disconnect_callback = (
-                            self._handle_mqtt_disconnect
-                        )
+            # Step 2: Connect to local MQTT broker
+            self._logger.info(
+                "Connecting to MQTT broker at %s:%d",
+                self.mqtt_host, self.mqtt_port,
+            )
 
-            # All hosts failed device-response verification.
-            # If the broker TCP connection is still up from the last attempt,
-            # accept it — the device may be offline/sleeping.  Polls will
-            # recover automatically once the device is reachable again.
+            await self.mqtt_client.connect(
+                device_ids, self.mqtt_host, self.mqtt_port, self.mqtt_username
+            )
+
+            try:
+                await asyncio.wait_for(
+                    self.mqtt_client.connected.wait(), timeout=15.0
+                )
+            except asyncio.TimeoutError:
+                self._logger.error("Timeout waiting for MQTT connection")
+                await self._cleanup()
+                return False
+
+            # Step 3: Verify connection (get initial data)
+            try:
+                if await asyncio.wait_for(
+                    self._verify_connection(), timeout=15.0
+                ):
+                    self._last_successful_communication = time.time()
+                    self._logger.info(
+                        "Connected to local MQTT broker at %s:%d",
+                        self.mqtt_host, self.mqtt_port,
+                    )
+                    return True
+            except asyncio.TimeoutError:
+                self._logger.warning("Connection verification timed out")
+
+            # Verification failed but broker is connected — device may be
+            # offline/sleeping. Accept the connection; polls will recover.
             if self.mqtt_client and self.mqtt_client.connected.is_set():
-                last_host = hosts_to_try[-1][1] if hosts_to_try else "unknown"
                 self._logger.warning(
-                    "Device not responding on any broker — accepting broker "
-                    "connection to %s. Integration will recover automatically "
-                    "when device is reachable.", last_host,
+                    "Device not responding — accepting broker connection. "
+                    "Integration will recover when device is reachable.",
                 )
                 self._last_successful_communication = time.time()
                 return True
 
-            self._logger.error("All MQTT host candidates failed")
+            self._logger.error("Failed to connect to MQTT broker")
             await self._cleanup()
             return False
 
@@ -217,71 +191,20 @@ class SydpowerConnector:
             if self._connection_lock.locked():
                 self._connection_lock.release()
 
-    async def _try_mqtt_connect(
-        self,
-        mqtt_token: str,
-        device_ids: list,
-        mqtt_host: str,
-        mqtt_port: int,
-    ) -> bool:
-        """Attempt MQTT connection to a single host. Returns True if verified."""
-        await self.mqtt_client.connect(
-            mqtt_token, device_ids, mqtt_host, mqtt_port
-        )
-
-        try:
-            await asyncio.wait_for(
-                self.mqtt_client.connected.wait(), timeout=15.0
-            )
-        except asyncio.TimeoutError:
-            self._logger.warning(
-                "Timeout waiting for MQTT connection to %s", mqtt_host
-            )
-            return False
-
-        # Verify the connection actually works (get data back)
-        try:
-            if not await asyncio.wait_for(
-                self._verify_connection(), timeout=10.0
-            ):
-                self._logger.warning(
-                    "Connection verification failed for %s", mqtt_host
-                )
-                return False
-        except asyncio.TimeoutError:
-            self._logger.warning(
-                "Verification timeout for %s", mqtt_host
-            )
-            return False
-
-        return True
-
     async def _verify_connection(self) -> bool:
-        """Verify the connection by testing device responsiveness.
-
-        Two-stage verification:
-        1. Wait for _on_connect's func 03 response (confirms broker reachability)
-        2. Send a fresh poll to test if device actively responds (not just cached data)
-
-        This prevents accepting a host where the device ID exists but device
-        traffic routes through a different broker.
-        """
+        """Verify the connection by testing device responsiveness."""
         if not self.mqtt_client or not self.mqtt_client.connected.is_set():
-            self._logger.debug("verify_connection: not connected, skipping")
             return False
 
-        self._logger.debug("Stage 1: waiting for _on_connect func 03 response...")
+        self._logger.debug("Stage 1: waiting for initial func 03 response...")
 
         try:
-            # Stage 1: Wait for _on_connect's initial func 03 response
             await asyncio.wait_for(
                 self.mqtt_client.data_updated.wait(), timeout=5.0
             )
             self._logger.debug(
                 "Initial response received, waiting 1s for settings..."
             )
-
-            # Settings response arrives ~250ms after sensors; give it time
             await asyncio.sleep(1.0)
 
             if self.mqtt_client.devices:
@@ -295,7 +218,6 @@ class SydpowerConnector:
                 len(v) for v in self.mqtt_client.devices.values()
             ) if self.mqtt_client.devices else 0
 
-            # Log per-device field names for debugging
             for mac, fields in (self.mqtt_client.devices or {}).items():
                 self._logger.debug(
                     "Verify stage 1: %s returned %d fields — %s",
@@ -311,8 +233,7 @@ class SydpowerConnector:
                 field_count,
             )
 
-            # Stage 2: Send a fresh poll to test active device responsiveness
-            # Clear cache to ensure we're not accepting cached/stale broker data
+            # Stage 2: Fresh poll
             self.mqtt_client.clear_message_cache()
             self.mqtt_client.data_updated.clear()
 
@@ -322,7 +243,7 @@ class SydpowerConnector:
             await asyncio.wait_for(
                 self.mqtt_client.data_updated.wait(), timeout=5.0
             )
-            await asyncio.sleep(1.0)  # Wait for both sensor + settings responses
+            await asyncio.sleep(1.0)
 
             fresh_field_count = sum(
                 len(v) for v in self.mqtt_client.devices.values()
@@ -330,8 +251,7 @@ class SydpowerConnector:
 
             if fresh_field_count == 0:
                 self._logger.warning(
-                    "Stage 2 failed: device did not respond to fresh poll "
-                    "(may be on different broker)"
+                    "Stage 2 failed: device did not respond to fresh poll"
                 )
                 return False
 
@@ -349,6 +269,27 @@ class SydpowerConnector:
         except Exception as e:
             self._logger.error("Error during connection verification: %s", e)
             return False
+
+    async def _handle_device_state(self, device_mac: str, online: bool):
+        """Handle device state changes — sync with platform API."""
+        # Look up the raw device_id (with colons) for the API call
+        device_info = self.devices.get(device_mac, {})
+        raw_device_id = device_info.get("_raw_device_id")
+
+        if not raw_device_id:
+            # Reconstruct MAC with colons from the stripped version
+            if len(device_mac) == 12:
+                raw_device_id = ":".join(
+                    device_mac[i:i+2] for i in range(0, 12, 2)
+                )
+            else:
+                self._logger.warning(
+                    "Cannot determine raw device_id for %s", device_mac
+                )
+                return
+
+        if self.api_client:
+            await self.api_client.update_mqtt_state(raw_device_id, online)
 
     async def get_data(self) -> Dict[str, Any]:
         """Get the latest data from devices."""
@@ -403,13 +344,7 @@ class SydpowerConnector:
         return {}
 
     async def _poll_devices(self) -> Dict[str, Any]:
-        """Send func 03 read and wait for sensor + settings responses.
-
-        Func 03 triggers two MQTT responses from the battery:
-          - sensors  on ``client/04``   (~30 ms)
-          - settings on ``client/data`` (~250 ms)
-        We clear the dedup cache first so the response is not swallowed.
-        """
+        """Send func 03 read and wait for sensor + settings responses."""
         if not self.mqtt_client:
             return {}
 
@@ -432,8 +367,6 @@ class SydpowerConnector:
             self._logger.debug(
                 "Poll: first response arrived, waiting 1s for settings..."
             )
-
-            # Settings response arrives ~250ms after sensors; give it time
             await asyncio.sleep(1.0)
 
             if self.mqtt_client.devices:
@@ -444,10 +377,8 @@ class SydpowerConnector:
                     else:
                         self.devices[mac] = fields
 
-                # Log per-device field count for diagnostics
                 for mac in self.devices:
                     data = self.devices.get(mac, {})
-                    # Count only non-internal fields
                     user_fields = [
                         k for k in data if not k.startswith("_")
                     ]
@@ -523,7 +454,6 @@ class SydpowerConnector:
             command_bytes = COMMANDS[command]
         elif command == "write_register" and value is not None:
             register, reg_value = value
-            # Use per-device modbus address from API, fall back to constant
             device_info = self.devices.get(device_id, {})
             modbus_addr = device_info.get(
                 "_modbus_address", REGISTER_MODBUS_ADDRESS
@@ -576,7 +506,6 @@ class SydpowerConnector:
         """Handle reconnection with proper backoff and state management."""
         current_time = time.time()
 
-        # Apply minimum interval between reconnection attempts
         if (
             current_time - self._last_reconnection_attempt
             < self._min_reconnection_interval
@@ -584,7 +513,6 @@ class SydpowerConnector:
             await asyncio.sleep(self._min_reconnection_interval)
             current_time = time.time()
 
-        # If reconnection already in progress, wait for it
         if self._reconnection_in_progress:
             self._logger.debug(
                 "Reconnection already in progress, waiting..."
@@ -599,7 +527,6 @@ class SydpowerConnector:
                 )
             return self.is_connected()
 
-        # Acquire connection lock
         try:
             lock_acquired = await asyncio.wait_for(
                 self._connection_lock.acquire(), timeout=10.0
@@ -619,7 +546,6 @@ class SydpowerConnector:
             self._last_reconnection_attempt = current_time
             self._logger.info("Starting reconnection process...")
 
-            # Clean up existing connections
             try:
                 await asyncio.wait_for(self._cleanup(), timeout=10.0)
             except asyncio.TimeoutError:
@@ -629,7 +555,6 @@ class SydpowerConnector:
             self.mqtt_client = None
             await asyncio.sleep(2)
 
-            # Retry loop with exponential backoff
             max_attempts = 10
             base_delay = 3
 

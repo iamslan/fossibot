@@ -3,29 +3,27 @@
         "step": {
             "user": {
                 "title": "Connect to Fossibot",
+                "description": "Enter your MQTT broker settings and API token from BrightEMS app (Settings > Local MQTT Broker Settings).",
                 "data": {
-                    "username": "Username",
-                    "password": "Password",
-                    "show_advanced": "Show advanced options"
-                }
-            },
-            "advanced": {
-                "title": "Advanced Options",
-                "data": {
-                    "developer_mode": "Enable developer mode (connects to test environment)"
+                    "api_token": "API Token",
+                    "mqtt_host": "MQTT Broker Host",
+                    "mqtt_port": "MQTT Broker Port",
+                    "mqtt_username": "MQTT Username (optional)"
                 }
             },
             "reauth_confirm": {
                 "title": "Reauthenticate Fossibot",
-                "description": "Your credentials have expired. Please re-enter them.",
+                "description": "Your configuration needs to be updated. Please re-enter your settings.",
                 "data": {
-                    "username": "Username",
-                    "password": "Password"
+                    "api_token": "API Token",
+                    "mqtt_host": "MQTT Broker Host",
+                    "mqtt_port": "MQTT Broker Port",
+                    "mqtt_username": "MQTT Username (optional)"
                 }
             }
         },
         "error": {
-            "cannot_connect": "Failed to connect, please check credentials"
+            "cannot_connect": "Failed to connect. Please check your API token and MQTT broker settings."
         },
         "abort": {
             "reauth_successful": "Reauthentication successful"

@@ -1,5 +1,5 @@
 # mqtt_client.py
-"""MQTT client for Fossibot devices."""
+"""MQTT client for Fossibot devices via local MQTT broker."""
 
 import asyncio
 import time
@@ -9,8 +9,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import paho.mqtt.client as mqtt
 
-from .const import MQTT_HOSTS_PROD, MQTT_PORT, MQTT_PASSWORD, MQTT_WEBSOCKET_PATH
-
+from .const import DEFAULT_MQTT_PORT
 from .logger import SmartLogger
 from .modbus import REGRequestSettings, parse_registers, high_low_to_int
 
@@ -25,7 +24,7 @@ CONNECTION_CODES = {
 
 
 class MQTTClient:
-    """MQTT client for Fossibot device communication."""
+    """MQTT client for Fossibot device communication via local broker."""
 
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.mqtt_client: Optional[mqtt.Client] = None
@@ -49,20 +48,24 @@ class MQTTClient:
         self._is_disconnecting = False
         self._subscribed_topics: List[str] = []
 
+        # Device online/offline state
+        self._device_online: Dict[str, bool] = {}
+
         # Custom message handlers
         self._message_handlers: Dict[str, Callable[[str, List[int]], Coroutine]] = {}
 
-        # Disconnect callback
+        # Callbacks
         self.on_disconnect_callback: Optional[Callable] = None
+        self.on_device_state_callback: Optional[Callable] = None
 
     async def connect(
         self,
-        mqtt_token: str,
         device_ids: List[str],
-        mqtt_host: str = MQTT_HOSTS_PROD[0],
-        mqtt_port: int = MQTT_PORT,
+        mqtt_host: str,
+        mqtt_port: int = DEFAULT_MQTT_PORT,
+        mqtt_username: str = "",
     ) -> None:
-        """Connect to MQTT broker and subscribe to device topics."""
+        """Connect to local MQTT broker and subscribe to device topics."""
         try:
             self._logger.debug(
                 "Starting MQTT connection to %s:%s", mqtt_host, mqtt_port
@@ -74,22 +77,19 @@ class MQTTClient:
                 random.choice("0123456789abcdef") for _ in range(24)
             )
             timestamp_ms = int(time.time() * 1000)
-            client_id = f"client_{hex_string}_{timestamp_ms}"
+            client_id = f"fossibot_ha_{hex_string}_{timestamp_ms}"
 
             self.mqtt_client = mqtt.Client(
                 client_id=client_id,
                 clean_session=True,
-                transport="websockets",
+                transport="tcp",
                 protocol=mqtt.MQTTv311,
             )
 
-            self.mqtt_client.ws_set_options(
-                path=MQTT_WEBSOCKET_PATH,
-                headers={"Sec-WebSocket-Protocol": "mqtt"},
-            )
-            self.mqtt_client.username_pw_set(
-                username=mqtt_token, password=MQTT_PASSWORD
-            )
+            # Username auth only — password not required per SYDPOWER docs
+            if mqtt_username:
+                self.mqtt_client.username_pw_set(username=mqtt_username)
+
             self.mqtt_client.on_connect = self._on_connect
             self.mqtt_client.on_message = self._on_message
             self.mqtt_client.on_disconnect = self._on_disconnect
@@ -166,10 +166,17 @@ class MQTTClient:
         """Handle incoming MQTT messages with deduplication."""
         try:
             topic = msg.topic
-            payload = list(msg.payload)
+            payload = msg.payload
+
+            # Handle device connection state messages (1 = online, 0 = offline)
+            if topic.endswith("/device/response/state"):
+                self._handle_state_message(topic, payload)
+                return
+
+            payload_list = list(payload)
 
             # Deduplication
-            message_id = f"{topic}:{hash(bytes(payload))}"
+            message_id = f"{topic}:{hash(bytes(payload_list))}"
             current_time = time.time()
 
             with self._message_cache_lock:
@@ -194,12 +201,10 @@ class MQTTClient:
                 self._message_cache[message_id] = current_time
 
             # Filter short/invalid messages
-            if topic.endswith("/device/response/state") and len(payload) < 10:
-                return
-            if len(payload) < 8:
+            if len(payload_list) < 8:
                 return
 
-            data_bytes = payload[6:]
+            data_bytes = payload_list[6:]
 
             if len(data_bytes) % 2 != 0:
                 self._logger.warning("Odd byte count in payload from %s", topic)
@@ -256,6 +261,42 @@ class MQTTClient:
 
         except Exception as e:
             self._logger.error("Error processing MQTT message: %s", e)
+
+    def _handle_state_message(self, topic: str, payload: bytes):
+        """Handle device online/offline state messages.
+
+        The device publishes '1' (online) or '0' (offline) to
+        {MAC}/device/response/state.
+        """
+        device_mac = topic.split("/")[0]
+
+        try:
+            state_str = payload.decode("utf-8").strip()
+        except (UnicodeDecodeError, AttributeError):
+            # Fallback: interpret raw bytes
+            state_str = str(payload[0]) if payload else ""
+
+        online = state_str == "1"
+        prev_state = self._device_online.get(device_mac)
+        self._device_online[device_mac] = online
+
+        self._logger.info(
+            "Device %s state: %s (was %s)",
+            device_mac,
+            "online" if online else "offline",
+            "online" if prev_state else ("offline" if prev_state is not None else "unknown"),
+        )
+
+        # Notify connector to sync state with platform API
+        if self.on_device_state_callback:
+            asyncio.run_coroutine_threadsafe(
+                self.on_device_state_callback(device_mac, online),
+                self.loop,
+            )
+
+    def is_device_online(self, device_mac: str) -> bool:
+        """Check if a device is reported as online via the state topic."""
+        return self._device_online.get(device_mac, False)
 
     async def _update_device_data(self, device_mac, device_update):
         """Update device data safely."""

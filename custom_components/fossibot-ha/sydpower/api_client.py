@@ -1,61 +1,26 @@
-"""API client for Fossibot cloud service."""
+"""API client for SYDPOWER local MQTT integration.
+
+Uses the two public APIs:
+- pub_getDeviceList: retrieve bound devices
+- pub_updateMqttState: sync device online/offline state with the platform
+"""
 
 import asyncio
-import time
-import hmac
-import hashlib
-import json
-import random
 from typing import Any, Dict, Optional
 
 import aiohttp
 
-from .const import ENDPOINT, CLIENT_SECRET
+from .const import API_GET_DEVICE_LIST, API_UPDATE_MQTT_STATE
 from .logger import SmartLogger
 
 
 class APIClient:
-    """Client for Fossibot/Sydpower API."""
+    """Client for SYDPOWER public device APIs."""
 
-    def __init__(self):
+    def __init__(self, api_token: str):
+        self._api_token = api_token
         self._session: Optional[aiohttp.ClientSession] = None
         self._logger = SmartLogger(__name__)
-        self._auth_token = None
-        self._access_token = None
-
-    def _generate_device_info(self) -> Dict[str, Any]:
-        """Generate realistic Android device info for API calls."""
-        device_id = "".join(random.choice("0123456789ABCDEF") for _ in range(32))
-        return {
-            "PLATFORM": "app",
-            "OS": "android",
-            "APPID": "__UNI__55F5E7F",
-            "DEVICEID": device_id,
-            "channel": "google",
-            "scene": 1001,
-            "appId": "__UNI__55F5E7F",
-            "appLanguage": "en",
-            "appName": "BrightEMS",
-            "appVersion": "1.2.3",
-            "appVersionCode": 123,
-            "appWgtVersion": "1.2.3",
-            "browserName": "chrome",
-            "browserVersion": "130.0.6723.86",
-            "deviceBrand": "Samsung",
-            "deviceId": device_id,
-            "deviceModel": "SM-A426B",
-            "deviceType": "phone",
-            "osName": "android",
-            "osVersion": 10,
-            "romName": "Android",
-            "romVersion": 10,
-            "ua": "Mozilla/5.0 (Linux; Android 10; SM-A426B) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/87.0.4280.86 Mobile Safari/537.36",
-            "uniPlatform": "app",
-            "uniRuntimeVersion": "4.24",
-            "locale": "en",
-            "LOCALE": "en",
-        }
 
     async def _ensure_session(self):
         """Ensure that a persistent aiohttp session exists."""
@@ -63,26 +28,10 @@ class APIClient:
             timeout = aiohttp.ClientTimeout(total=15)
             self._session = aiohttp.ClientSession(timeout=timeout)
 
-    def _build_function_params(
-        self, url: str, data: Dict, token: Optional[str] = None
-    ) -> str:
-        """Build JSON params for a serverless function invocation."""
-        args: Dict[str, Any] = {
-            "$url": url,
-            "data": data,
-            "clientInfo": self._generate_device_info(),
-        }
-        if token:
-            args["uniIdToken"] = token
-        return json.dumps({"functionTarget": "router", "functionArgs": args})
-
-    async def _call_api(
-        self,
-        method: str,
-        params: str = "{}",
-        token: Optional[str] = None,
+    async def _request(
+        self, url: str, params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Make an API call to Fossibot with retries."""
+        """Make an API request with retries."""
         max_retries = 3
         retry_delay = 2
 
@@ -90,230 +39,128 @@ class APIClient:
             try:
                 await self._ensure_session()
 
-                data = {
-                    "method": method,
-                    "params": params,
-                    "spaceId": "mp-6c382a98-49b8-40ba-b761-645d83e8ee74",
-                    "timestamp": int(time.time() * 1000),
-                }
-                if token:
-                    data["token"] = token
-
-                # Generate HMAC-MD5 signature
-                items = [
-                    f"{key}={data[key]}"
-                    for key in sorted(data.keys())
-                    if data[key]
-                ]
-                query_str = "&".join(items)
-                signature = hmac.new(
-                    CLIENT_SECRET.encode("utf-8"),
-                    query_str.encode("utf-8"),
-                    hashlib.md5,
-                ).hexdigest()
-
-                device_info = self._generate_device_info()
-                headers = {
-                    "Content-Type": "application/json",
-                    "x-serverless-sign": signature,
-                    "user-agent": device_info["ua"],
-                }
-
                 async with self._session.post(
-                    ENDPOINT, json=data, headers=headers, timeout=10
+                    url, json=params, timeout=10
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
                         self._logger.error(
-                            "API request failed with status %d: %s",
-                            resp.status, error_text[:200],
+                            "API request to %s failed with status %d: %s",
+                            url, resp.status, error_text[:200],
                         )
                         raise Exception(
                             f"API request failed with status {resp.status}"
                         )
 
                     resp_json = await resp.json()
-
-                    if not resp_json.get("data"):
-                        raise Exception(
-                            f"API request returned no data: {resp_json}"
-                        )
-
                     return resp_json
 
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 self._logger.error(
-                    "API call failed (attempt %d/%d): %s",
-                    attempt + 1, max_retries, e,
+                    "API call to %s failed (attempt %d/%d): %s",
+                    url, attempt + 1, max_retries, e,
                 )
                 if attempt == max_retries - 1:
                     raise
                 await asyncio.sleep(retry_delay * (attempt + 1))
 
-    async def authenticate(self, username: str, password: str) -> Dict[str, str]:
-        """Authenticate and obtain access tokens."""
-        # Step 1: Get anonymous auth token
-        auth_resp = await self._call_api(
-            "serverless.auth.user.anonymousAuthorize"
-        )
-        self._auth_token = auth_resp["data"]["accessToken"]
-
-        # Step 2: Login with credentials
-        login_params = self._build_function_params(
-            "user/pub/login",
-            {"locale": "en", "username": username, "password": password},
-        )
-        login_resp = await self._call_api(
-            "serverless.function.runtime.invoke",
-            params=login_params,
-            token=self._auth_token,
-        )
-        login_data = login_resp.get("data", {})
-        self._logger.debug("Login response keys: %s", list(login_data.keys()))
-        self._logger.debug(
-            "Login uid=%s errCode=%s",
-            login_data.get("uid") or login_data.get("user_id"),
-            login_data.get("errCode") or login_data.get("code"),
-        )
-        self._access_token = login_data.get("token")
-
-        if not self._access_token:
-            raise ValueError("Login failed - no token in response")
-
-        return {
-            "auth_token": self._auth_token,
-            "access_token": self._access_token,
-        }
-
-    async def get_mqtt_token(self) -> Dict[str, Any]:
-        """Get MQTT access token and connection info.
-
-        Returns a dict with at least ``token``.  May also contain
-        ``mqtt_host`` and ``mqtt_port`` if the API provides them.
-        """
-        if not self._auth_token or not self._access_token:
-            raise ValueError("Must authenticate first")
-
-        params = self._build_function_params(
-            "common/emqx.getAccessToken",
-            {"locale": "en"},
-            token=self._access_token,
-        )
-        resp = await self._call_api(
-            "serverless.function.runtime.invoke",
-            params=params,
-            token=self._auth_token,
-        )
-        data = resp.get("data", {})
-
-        self._logger.info(
-            "MQTT token response keys: %s", list(data.keys())
-        )
-        self._logger.debug("MQTT token response data: %s", data)
-
-        mqtt_token = data.get("access_token")
-        if not mqtt_token:
-            raise ValueError("Failed to get MQTT token")
-
-        # Try to extract MQTT host from response — field name unknown,
-        # so check common patterns used by EMQX cloud APIs.
-        mqtt_host = (
-            data.get("mqtt_host")
-            or data.get("host")
-            or data.get("mqttHost")
-            or data.get("server")
-            or data.get("endpoint")
-            or data.get("broker")
-            or data.get("url")
-            or data.get("addr")
-        )
-
-        mqtt_port = (
-            data.get("mqtt_port")
-            or data.get("port")
-            or data.get("mqttPort")
-        )
-
-        result: Dict[str, Any] = {"token": mqtt_token}
-        if mqtt_host:
-            self._logger.info("API returned MQTT host: %s", mqtt_host)
-            result["mqtt_host"] = mqtt_host
-        if mqtt_port:
-            self._logger.info("API returned MQTT port: %s", mqtt_port)
-            result["mqtt_port"] = int(mqtt_port)
-
-        return result
-
     async def get_devices(self) -> Dict[str, Any]:
-        """Get list of devices."""
-        if not self._auth_token or not self._access_token:
-            raise ValueError("Must authenticate first")
+        """Get list of devices using pub_getDeviceList API.
 
-        params = self._build_function_params(
-            "client/device/kh/getList",
-            {"locale": "en", "pageIndex": 1, "pageSize": 100},
-            token=self._access_token,
+        Returns a dict keyed by MAC (colons stripped), values are device records.
+        """
+        resp = await self._request(
+            API_GET_DEVICE_LIST,
+            {"api_token": self._api_token},
         )
-        resp = await self._call_api(
-            "serverless.function.runtime.invoke",
-            params=params,
-            token=self._auth_token,
-        )
-        resp_data = resp.get("data", {})
-        self._logger.debug("Device list response keys: %s", list(resp_data.keys()))
-        self._logger.debug(
-            "Device list totals: total=%s hasMore=%s rows=%s",
-            resp_data.get("total"),
-            resp_data.get("hasMore"),
-            len(resp_data.get("rows", [])),
-        )
-        devices = resp_data.get("rows", [])
 
-        if devices:
-            self._logger.debug(
-                "First device keys: %s", list(devices[0].keys())
+        # The API may return a list directly or wrap it in a data/rows key
+        devices_list = resp
+        if isinstance(resp, dict):
+            devices_list = (
+                resp.get("data", {}).get("rows")
+                or resp.get("data", [])
+                or resp.get("rows", [])
             )
+            if isinstance(devices_list, dict):
+                devices_list = devices_list.get("rows", [])
+
+        if not isinstance(devices_list, list):
+            self._logger.error(
+                "Unexpected device list response format: %s",
+                type(devices_list),
+            )
+            self._logger.debug("Full response: %s", resp)
+            return {}
+
+        self._logger.debug("Device list returned %d entries", len(devices_list))
 
         device_dict = {}
-        for device in devices:
+        for device in devices_list:
             raw_id = device.get("device_id") or ""
             dev_id = raw_id.replace(":", "")
             name = device.get("device_name", "<unknown>")
-            self._logger.debug(
-                "Device '%s': raw device_id=%r → mac=%r  product_type=%s",
-                name,
-                raw_id,
-                dev_id,
-                device.get("productInfo", {}).get("product_type"),
-            )
+
             if not dev_id:
                 self._logger.warning(
-                    "Device '%s' has no device_id in API response — skipping. "
-                    "Re-register the device in the Fossibot/BrightEMS app to fix this.",
+                    "Device '%s' has no device_id — skipping. "
+                    "Re-register the device in the BrightEMS app to fix this.",
                     name,
                 )
-                self._logger.debug(
-                    "Device '%s' full API record: %s", name, device
-                )
                 continue
-            # Extract modbus info from productInfo for per-device addressing
-            product_info = device.get("productInfo", {})
+
             self._logger.debug(
-                "Device '%s' productInfo: address=%s count=%s",
-                name,
-                product_info.get("modbus_address"),
-                product_info.get("modbus_count"),
+                "Device '%s': raw_id=%s mac=%s",
+                name, raw_id, dev_id,
             )
+
+            # Extract modbus info from productInfo
+            product_info = device.get("productInfo", {})
             if product_info.get("modbus_address") is not None:
                 device["_modbus_address"] = int(product_info["modbus_address"])
             if product_info.get("modbus_count") is not None:
                 device["_modbus_count"] = int(product_info["modbus_count"])
+
+            # Store raw device_id (with colons) for state sync API
+            device["_raw_device_id"] = raw_id
+
             device_dict[dev_id] = device
 
-        self._logger.debug("Found %d devices", len(device_dict))
+        self._logger.info("Found %d devices", len(device_dict))
         return device_dict
+
+    async def update_mqtt_state(
+        self, device_id: str, online: bool
+    ) -> bool:
+        """Sync device online/offline state with the platform.
+
+        Args:
+            device_id: Device MAC address WITH colons (e.g. "AB:CD:EF:GH:IJ:KL")
+            online: True if device is online, False if offline
+        """
+        try:
+            resp = await self._request(
+                API_UPDATE_MQTT_STATE,
+                {
+                    "api_token": self._api_token,
+                    "device_id": device_id,
+                    "mqtt_state": 1 if online else 0,
+                },
+            )
+            self._logger.debug(
+                "Updated MQTT state for %s: %s — response: %s",
+                device_id,
+                "online" if online else "offline",
+                resp,
+            )
+            return True
+        except Exception as e:
+            self._logger.error(
+                "Failed to update MQTT state for %s: %s", device_id, e
+            )
+            return False
 
     async def close(self):
         """Close the session."""

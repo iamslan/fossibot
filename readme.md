@@ -4,7 +4,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/iamslan/fossibot)](https://github.com/iamslan/fossibot/releases)
 [![License: MIT](https://img.shields.io/github/license/iamslan/fossibot)](LICENSE)
 
-A custom [Home Assistant](https://www.home-assistant.io/) integration to monitor and control **Fossibot / Sydpower** portable power stations via the BrightEMS cloud API.
+A custom [Home Assistant](https://www.home-assistant.io/) integration to monitor and control **Fossibot / Sydpower** portable power stations via a **local MQTT broker**.
 
 > **Disclaimer** — This integration is unofficial and not affiliated with Fossibot, Sydpower, or BrightEMS. **Use at your own risk.** The authors are not responsible for any damage to your devices.
 
@@ -14,14 +14,21 @@ A custom [Home Assistant](https://www.home-assistant.io/) integration to monitor
 
 ## Features
 
+- **Local MQTT** — connects to your own MQTT broker, no cloud MQTT dependency
 - **11 sensors** — battery SoC (+ slave 1 & 2), power input/output, AC voltage & frequency
 - **4 switches** — USB, DC, AC output toggles + AC silent charging
 - **6 selects** — LED mode, USB/AC/DC standby time, screen rest time, sleep time
 - **4 number controls** — max charging current, stop charge timer, discharge/charge limits
-- **Dynamic MQTT** — endpoint auto-discovered from the API with fallback, fixing connectivity across regions
+- **Device state sync** — automatically reports device online/offline status to the SYDPOWER platform
 - **Write protection** — every register write validated against a safety whitelist
 - **Auto-reconnection** — exponential backoff with connection verification
 - **Per-device Modbus addressing** — extracted from API, not hardcoded
+
+## Prerequisites
+
+- **BrightEMS app** version **1.6.0** or later
+- A **local MQTT broker** (e.g. [Mosquitto](https://mosquitto.org/), [EMQX](https://www.emqx.io/)) reachable by your devices on **TCP port 1883**
+- Local MQTT Broker configured in the BrightEMS app (see [Setup](#setup) below)
 
 ## Supported Devices
 
@@ -56,14 +63,38 @@ If your BrightEMS-compatible model is not listed, please report your results on 
 2. Copy the `custom_components/fossibot-ha` folder to `<config>/custom_components/fossibot-ha`
 3. Restart Home Assistant
 
-## Configuration
+## Setup
+
+### 1. Configure Local MQTT in BrightEMS
+
+1. Open the **BrightEMS** app (v1.6.0+)
+2. Go to **Me** > **Settings** > **Local MQTT Broker Settings**
+3. Enter your local MQTT broker host address
+4. Copy your **API Token** (you'll need it for the integration)
+5. Make sure your MQTT broker is reachable on **port 1883** from your devices
+
+> **Important:** The master account (first to bind the device) is required to configure MQTT settings. All users sharing devices must use the same broker host.
+
+### 2. Add the Integration in Home Assistant
 
 1. Go to **Settings** > **Devices & Services**
 2. Click **+ Add Integration** and search for **Fossibot**
-3. Enter your BrightEMS app credentials (username and password)
+3. Enter:
+   - **API Token** — from the BrightEMS app settings
+   - **MQTT Broker Host** — your local MQTT broker address
+   - **MQTT Broker Port** — default `1883`
+   - **MQTT Username** — optional, depends on your broker configuration
 4. Click Submit
 
-The integration will authenticate, discover your devices, and create all entities automatically.
+The integration will fetch your device list, connect to your MQTT broker, and create all entities automatically.
+
+### Upgrading from v1.x
+
+Version 2.0 replaces the cloud-based connection with local MQTT. You must **remove and re-add** the integration after upgrading:
+
+1. Go to **Settings** > **Devices & Services**
+2. Remove the existing Fossibot integration
+3. Re-add it with your new MQTT broker settings and API token
 
 ## Entities
 
@@ -125,18 +156,18 @@ custom_components/fossibot-ha/
   select.py            # 6 select entities (data-driven)
   number.py            # 4 number entities (data-driven)
   sydpower/
-    api_client.py      # REST API (auth, MQTT token, device list)
-    mqtt_client.py     # MQTT over WebSocket (paho-mqtt)
-    connector.py       # Connection orchestration + fallback
+    api_client.py      # REST API (device list, state sync)
+    mqtt_client.py     # MQTT over TCP (paho-mqtt)
+    connector.py       # Connection orchestration
     modbus.py          # Modbus encoding, CRC-16, safety validation
-    const.py           # Endpoints, register addresses
+    const.py           # API endpoints, register addresses
     logger.py          # Rate-limited smart logger
 ```
 
 **Key design decisions:**
 - All entity definitions are data-driven (lists of dicts) — no per-entity boilerplate
 - `WRITABLE_REGISTERS` safety map in `modbus.py` defines the exact set of allowed values per register, preventing accidental writes that could brick a device
-- MQTT host is discovered from the API at runtime with a hardcoded fallback, so the integration works across all regions
+- Device online/offline state is synced with the SYDPOWER platform via `pub_updateMqttState` API
 - Per-device `modbus_address` is extracted from the API rather than assumed
 
 ## Debugging
@@ -150,31 +181,16 @@ logger:
     custom_components.fossibot: debug
 ```
 
-### Standalone discovery script
-
-For debugging MQTT connectivity without Home Assistant:
-
-```bash
-pip install aiohttp paho-mqtt
-python scripts/discover_mqtt.py <username> <password>
-```
-
-This dumps all API responses and tests MQTT connectivity against both the API-provided and fallback hosts.
-
 ## Limitations
 
-- Requires internet — this is a cloud-based integration
-- Depends on the Fossibot/Sydpower cloud service being operational
-- API may change without notice (reverse-engineered endpoints)
+- Requires internet for the initial device list fetch and state sync API calls (`api.app.sydpower.com`)
+- MQTT communication itself is fully local
 - Slave battery SoC sensors only appear when expansion batteries are connected and report non-zero values
-
-## Local / LAN Mode
-
-Want to keep MQTT traffic on your local network? You can redirect the battery's MQTT connection to a self-hosted EMQX broker on Home Assistant using a DNS rewrite. See the **[Local MQTT Guide](docs/LOCAL_MQTT.md)** for step-by-step instructions.
+- API token must be regenerated if compromised (via BrightEMS app settings)
 
 ## Contributing
 
-Contributions are welcome — both issues and pull requests. If you have a Fossibot model not listed above, running the discovery script and sharing the (redacted) output helps a lot.
+Contributions are welcome — both issues and pull requests. If you have a Fossibot model not listed above, please share your results on Discord or GitHub Issues.
 
 ## Credits
 
