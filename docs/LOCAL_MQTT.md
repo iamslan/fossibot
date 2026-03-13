@@ -1,111 +1,106 @@
-# Local MQTT Guide (LAN Mode)
+# EMQX Setup Guide for Home Assistant
 
-Keep your Fossibot battery's MQTT data traffic entirely on your local network by redirecting DNS to a self-hosted EMQX broker on Home Assistant.
+Step-by-step guide to set up EMQX as your local MQTT broker for the Fossibot integration (v2.0.0+).
 
-> **Note** — The REST API (`api.sydpower.com`) is still used for authentication and device discovery. Only the high-frequency MQTT data stream stays local.
-
----
-
-## How It Works
-
-```
-┌─────────────┐         ┌──────────────────┐         ┌──────────────┐
-│   Battery    │──DNS──▶ │  AdGuard Home    │         │  HA + EMQX   │
-│  (Fossibot)  │         │  DNS rewrite:    │         │  192.168.1.10│
-│              │         │  mqtt.sydpower   │──────▶  │  port 8083   │
-│              │────────────────MQTT─────────────────▶ │  /mqtt (WS)  │
-└─────────────┘         └──────────────────┘         └──────────────┘
-```
-
-1. The battery firmware connects to `mqtt.sydpower.com` on port **8083** (MQTT over WebSocket)
-2. **AdGuard Home** rewrites the DNS so `mqtt.sydpower.com` resolves to your Home Assistant IP
-3. **EMQX** on Home Assistant accepts the connection on port 8083
-4. The Fossibot HA integration also resolves to the local EMQX — both sides communicate locally
+> **Why EMQX?** — The BrightEMS app sends MQTT credentials that standard brokers like Mosquitto may reject. EMQX handles anonymous/pass-through authentication out of the box and is available as a Home Assistant add-on.
 
 ---
 
 ## Prerequisites
 
 - Home Assistant with **Supervisor** (HAOS or Supervised install)
+- **BrightEMS** app version **1.6.0** or later
+- Battery and Home Assistant on the **same network**
 - A **static IP** for your Home Assistant machine (e.g., `192.168.1.10`)
-- The battery and Home Assistant on the **same LAN**
 
 ---
 
-## Step 1: Install & Configure EMQX
+## Step 1: Install the EMQX Add-on
 
 1. In Home Assistant, go to **Settings** > **Add-ons** > **Add-on Store**
-2. Search for **EMQX** and install it
-3. Start the add-on and open the **EMQX Dashboard** (default: `http://<HA_IP>:18083`)
-4. Log in with the default credentials (`admin` / `public`) and change the password
-
-### Configure WebSocket Listener
-
-The battery connects via **MQTT over WebSocket** on port **8083** with path `/mqtt`. EMQX includes a default WebSocket listener on port 8083 — verify it is enabled:
-
-1. Go to **Management** > **Listeners** in the EMQX Dashboard
-2. Confirm the **ws:default** listener exists on port `8083`
-3. If not, create a new WebSocket listener:
-   - **Type**: `ws` (WebSocket)
-   - **Bind**: `0.0.0.0:8083`
-
-### Enable Anonymous Authentication
-
-The battery authenticates with a cloud-issued token that EMQX cannot verify. Enable anonymous access so EMQX accepts any credentials:
-
-1. Go to **Access Control** > **Authentication** in the EMQX Dashboard
-2. Make sure **no authentication backends** are configured, or enable the **Allow Anonymous** option
-
-> **Security note** — Anonymous access means any device on your LAN can connect to EMQX. This is acceptable for a home network but not recommended for shared/public networks.
+2. Click the **three dots** (top right) > **Repositories**
+3. Add the EMQX community repository if not already present:
+   ```
+   https://github.com/hassio-addons/repository
+   ```
+4. Search for **EMQX** and click **Install**
+5. Once installed, go to the add-on **Configuration** tab
+6. Start the add-on and enable **Start on boot** and **Watchdog**
 
 ---
 
-## Step 2: Install & Configure AdGuard Home
+## Step 2: Configure EMQX
 
-1. In Home Assistant, go to **Settings** > **Add-ons** > **Add-on Store**
-2. Search for **AdGuard Home** and install it
-3. Start the add-on and open the AdGuard Home web UI
-4. Complete the initial setup wizard
+### Open the Dashboard
 
-### Add DNS Rewrite
+1. Open the EMQX web dashboard at `http://<HA_IP>:18083`
+2. Default credentials: `admin` / `public`
+3. **Change the admin password** on first login
 
-1. Go to **Filters** > **DNS rewrites**
-2. Click **Add DNS rewrite** and enter:
-   - **Domain**: `mqtt.sydpower.com`
-   - **Answer**: `192.168.1.10` *(replace with your HA IP)*
-3. Save
+### Verify the TCP Listener (port 1883)
 
-This tells AdGuard to resolve `mqtt.sydpower.com` to your local Home Assistant instead of the cloud server.
+The Fossibot integration connects via **plain TCP MQTT on port 1883**. EMQX enables this by default, but verify:
 
----
+1. Go to **Management** > **Listeners**
+2. Confirm the **tcp:default** listener exists and is bound to `0.0.0.0:1883`
+3. If missing, click **Add Listener**:
+   - **Type**: `tcp`
+   - **Name**: `default`
+   - **Bind**: `0.0.0.0:1883`
 
-## Step 3: Configure Your Router's DHCP
+### Allow Anonymous Connections
 
-For the DNS rewrite to work, all devices on your network (including the battery) must use AdGuard Home as their DNS server.
+The battery authenticates with a platform-issued token that EMQX cannot validate locally. Allow anonymous access:
 
-1. Open your **router's admin panel**
-2. Find the **DHCP settings** (usually under LAN or Network)
-3. Set the **primary DNS server** to your AdGuard Home IP (same as your HA IP, e.g., `192.168.1.10`)
-4. Save and apply
+1. Go to **Access Control** > **Authentication**
+2. Make sure **no authentication backends** are configured, **or** enable **Allow Anonymous**
 
-> **Tip** — After changing DHCP DNS, devices pick up the new setting when they renew their lease. You can speed this up by rebooting the battery (turn it off and on).
+> **Security note** — This means any device on your LAN can publish to EMQX. This is fine for a home network. If you need stricter control, create a username/password in EMQX and enter it in the integration config.
 
 ---
 
-## Step 4: Verify
+## Step 3: Configure BrightEMS App
 
-### Check EMQX Dashboard
+1. Open the **BrightEMS** app (v1.6.0+) on your phone
+2. Go to **Me** > **Settings** > **Local MQTT Broker Settings**
+3. Enter your Home Assistant IP address (e.g., `192.168.1.10`)
+4. Copy your **API Token** from this screen — you'll need it for the integration
+5. Tap **Save**
 
-1. Open the EMQX Dashboard (`http://<HA_IP>:18083`)
-2. Go to **Monitoring** > **Clients**
-3. You should see connected clients — one from the battery and one from the Fossibot HA integration
-4. Check **Subscriptions** to confirm topics like `{device_mac}/device/response/state` are active
+> **Important:** Only the **master account** (the first user who bound the device) can configure MQTT settings. If you share the device with other accounts, the master must set this up.
 
-### Check Home Assistant
+After saving, the battery will start sending MQTT traffic to your local broker instead of the cloud. You can verify this in the EMQX dashboard under **Monitoring** > **Clients** — the battery should appear as a connected client within a few seconds.
+
+---
+
+## Step 4: Add the Integration in Home Assistant
+
+1. Go to **Settings** > **Devices & Services**
+2. Click **+ Add Integration** and search for **Fossibot**
+3. Enter:
+   - **API Token** — the token from BrightEMS app settings
+   - **MQTT Broker Host** — your Home Assistant IP (e.g., `192.168.1.10`)
+   - **MQTT Broker Port** — `1883` (default)
+   - **MQTT Username** — leave empty if using anonymous auth
+4. Click **Submit**
+
+The integration will fetch your device list via the API, connect to EMQX, and create all entities automatically.
+
+---
+
+## Step 5: Verify Everything Works
+
+### EMQX Dashboard
+
+1. Open `http://<HA_IP>:18083` > **Monitoring** > **Clients**
+2. You should see **two clients**: one from the battery, one from the Fossibot integration
+3. Go to **Subscriptions** and confirm topics like `{device_mac}/device/response/state` are active
+
+### Home Assistant
 
 1. Go to **Settings** > **Devices & Services** > **Fossibot**
-2. Open your device — sensor values should be updating normally
-3. Toggle a switch (e.g., USB Output) and confirm it works
+2. Open your device — sensor values (SoC, input/output power) should be updating
+3. Toggle a switch (e.g., USB Output) to confirm two-way communication works
 
 ---
 
@@ -113,17 +108,37 @@ For the DNS rewrite to work, all devices on your network (including the battery)
 
 | Problem | Solution |
 |---------|----------|
-| Battery not connecting to EMQX | Verify DNS rewrite is active. Run `nslookup mqtt.sydpower.com` from a device using AdGuard as DNS — it should return your HA IP |
-| EMQX shows no clients | Check the WebSocket listener is on port `8083`. Check the battery is on the same network and using AdGuard as DNS |
-| HA integration not connecting | Restart the Fossibot integration after setting up DNS. It re-resolves the MQTT host on each connection attempt |
-| Entities not updating | Check EMQX dashboard for message activity. Ensure anonymous auth is enabled |
-| Cloud API calls failing | The DNS rewrite should only affect `mqtt.sydpower.com`, not `api.sydpower.com`. Verify AdGuard only has the MQTT rewrite |
+| Battery not appearing in EMQX clients | Confirm the IP in BrightEMS is correct. Reboot the battery after changing MQTT settings. Check that port 1883 is not blocked by a firewall |
+| Integration says "cannot connect" | Verify EMQX is running and the TCP listener is on port 1883. Try `telnet <HA_IP> 1883` from another device |
+| Battery connects but entities show "unavailable" | Check EMQX dashboard for message activity. The battery may need a power cycle after switching from cloud to local MQTT |
+| Only cached/stale values, no updates | Ensure the battery is on the same network as HA. Check EMQX **Monitoring** > **Messages** for incoming publishes |
+| "Authentication failed" in logs | Enable anonymous auth in EMQX, or create matching credentials in both EMQX and the integration config |
+| EMQX add-on won't start | Check the add-on logs. Port 1883 may be in use by another MQTT broker (e.g., Mosquitto). Stop the other broker first |
 
 ---
 
-## Caveats
+## Using Mosquitto Instead of EMQX
 
-- **Internet is still required** for initial authentication and device discovery (REST API)
-- **Only MQTT traffic is local** — the integration still calls `api.sydpower.com` for tokens and device lists
-- If the battery firmware updates its MQTT hostname, you may need to add additional DNS rewrites
-- This setup has been tested with the Fossibot F2400 and F3600 Pro — other models should work identically
+If you prefer Mosquitto, it works too — just make sure to configure it to accept anonymous connections or create credentials that match what you enter in the integration:
+
+1. Install the **Mosquitto broker** add-on
+2. In the Mosquitto config, set `allow_anonymous: true` or create a user
+3. Use the same broker IP and port when configuring the integration
+
+The key difference is that EMQX accepts any credentials by default, while Mosquitto requires explicit configuration for anonymous access.
+
+---
+
+## FAQ
+
+**Q: Does this replace the cloud connection entirely?**
+A: MQTT traffic is fully local. However, the integration still calls `api.app.sydpower.com` to fetch your device list and sync online/offline state. Internet is required for initial setup and device discovery.
+
+**Q: Can I use the HA Mosquitto add-on I already have?**
+A: Yes! Any MQTT broker that accepts TCP connections on port 1883 works. See the Mosquitto section above.
+
+**Q: Do I need AdGuard / DNS rewriting?**
+A: No. That was needed in v1.x where the battery firmware always connected to the cloud. In v2.0.0+, the BrightEMS app natively directs the battery to your local broker.
+
+**Q: What happens if my broker goes down?**
+A: The integration will automatically reconnect with exponential backoff when the broker comes back. The battery firmware also reconnects automatically.
