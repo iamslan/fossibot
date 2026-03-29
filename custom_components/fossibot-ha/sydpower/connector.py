@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from .logger import SmartLogger
 from .api_client import APIClient
@@ -68,6 +68,9 @@ class SydpowerConnector:
         # Last successful connection timestamp
         self._last_successful_communication = 0
 
+        # Callback fired when new device data arrives (for real-time updates)
+        self.on_data_received_callback: Optional[Callable] = None
+
     async def connect(self) -> bool:
         """Connect to the API and local MQTT broker. Returns True if successful."""
         if self._reconnection_in_progress:
@@ -115,6 +118,9 @@ class SydpowerConnector:
                 )
                 self.mqtt_client.on_device_state_callback = (
                     self._handle_device_state
+                )
+                self.mqtt_client.on_data_received_callback = (
+                    self._handle_data_received
                 )
 
             # Step 1: Get device list from API
@@ -269,6 +275,21 @@ class SydpowerConnector:
         except Exception as e:
             self._logger.error("Error during connection verification: %s", e)
             return False
+
+    async def _handle_data_received(self, device_mac: str, device_update: dict):
+        """Handle real-time data from MQTT — merge and notify coordinator."""
+        if device_mac in self.devices and isinstance(self.devices[device_mac], dict):
+            self.devices[device_mac].update(device_update)
+        else:
+            self.devices[device_mac] = device_update
+
+        self._last_successful_communication = time.time()
+
+        if self.on_data_received_callback:
+            try:
+                await self.on_data_received_callback(self.devices)
+            except Exception as e:
+                self._logger.error("Error in data received callback: %s", e)
 
     async def _handle_device_state(self, device_mac: str, online: bool):
         """Handle device state changes — sync with platform API."""

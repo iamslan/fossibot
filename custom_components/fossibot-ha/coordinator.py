@@ -48,11 +48,26 @@ class FossibotDataUpdateCoordinator(DataUpdateCoordinator):
             mqtt_port=config.get(CONF_MQTT_PORT, DEFAULT_MQTT_PORT),
             mqtt_username=config.get(CONF_MQTT_USERNAME, ""),
         )
+        self.connector.on_data_received_callback = self._handle_realtime_data
         self._shutdown_event = asyncio.Event()
         self._failed_updates_count = 0
         self._last_successful_update = time.time()
         self._reconnection_in_progress = False
         self._health_check_task = None
+
+    async def _handle_realtime_data(self, devices: Dict[str, Any]) -> None:
+        """Handle real-time data pushed by the battery via MQTT.
+
+        Called every time the battery sends a message (~30s auto-push
+        or in response to a command). Updates HA entities immediately
+        without waiting for the next poll cycle.
+        """
+        if not devices:
+            return
+
+        self._failed_updates_count = 0
+        self._last_successful_update = time.time()
+        self.async_set_updated_data(devices)
 
     def start_health_check(self) -> None:
         """Start the health check background task.

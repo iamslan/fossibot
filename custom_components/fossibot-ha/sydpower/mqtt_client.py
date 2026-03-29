@@ -57,6 +57,7 @@ class MQTTClient:
         # Callbacks
         self.on_disconnect_callback: Optional[Callable] = None
         self.on_device_state_callback: Optional[Callable] = None
+        self.on_data_received_callback: Optional[Callable] = None
 
     async def connect(
         self,
@@ -311,6 +312,13 @@ class MQTTClient:
                 device_mac,
                 len(self.devices[device_mac]),
             )
+
+        # Notify listener (coordinator) of new data
+        if self.on_data_received_callback:
+            try:
+                await self.on_data_received_callback(device_mac, device_update)
+            except Exception as e:
+                self._logger.error("Error in data received callback: %s", e)
 
     def _on_disconnect(self, client, userdata, rc):
         """Handle MQTT disconnection."""
