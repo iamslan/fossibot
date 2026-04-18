@@ -15,5 +15,5 @@
         "paho-mqtt>=1.6.1",
         "aiohttp>=3.8.0"
     ],
-    "version": "2.0.1"
+    "version": "2.0.2"
 }

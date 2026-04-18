@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
 from .logger import SmartLogger
 from .api_client import APIClient
@@ -12,7 +12,7 @@ from .modbus import (
     REGDisableDCOutput, REGEnableDCOutput, REGDisableACOutput,
     REGEnableACOutput, REGDisableLED, REGEnableLEDAlways,
     REGEnableLEDSOS, REGEnableLEDFlash, REGDisableACSilentChg,
-    REGEnableACSilentChg, get_read_modbus,
+    REGEnableACSilentChg, get_read_modbus, get_read_input_modbus,
     get_write_modbus, ModbusValidationError,
 )
 from .const import REGISTER_MODBUS_ADDRESS, DEFAULT_MQTT_PORT
@@ -68,9 +68,6 @@ class SydpowerConnector:
         # Last successful connection timestamp
         self._last_successful_communication = 0
 
-        # Callback fired when new device data arrives (for real-time updates)
-        self.on_data_received_callback: Optional[Callable] = None
-
     async def connect(self) -> bool:
         """Connect to the API and local MQTT broker. Returns True if successful."""
         if self._reconnection_in_progress:
@@ -118,9 +115,6 @@ class SydpowerConnector:
                 )
                 self.mqtt_client.on_device_state_callback = (
                     self._handle_device_state
-                )
-                self.mqtt_client.on_data_received_callback = (
-                    self._handle_data_received
                 )
 
             # Step 1: Get device list from API
@@ -276,21 +270,6 @@ class SydpowerConnector:
             self._logger.error("Error during connection verification: %s", e)
             return False
 
-    async def _handle_data_received(self, device_mac: str, device_update: dict):
-        """Handle real-time data from MQTT — merge and notify coordinator."""
-        if device_mac in self.devices and isinstance(self.devices[device_mac], dict):
-            self.devices[device_mac].update(device_update)
-        else:
-            self.devices[device_mac] = device_update
-
-        self._last_successful_communication = time.time()
-
-        if self.on_data_received_callback:
-            try:
-                await self.on_data_received_callback(self.devices)
-            except Exception as e:
-                self._logger.error("Error in data received callback: %s", e)
-
     async def _handle_device_state(self, device_mac: str, online: bool):
         """Handle device state changes — sync with platform API."""
         # Look up the raw device_id (with colons) for the API call
@@ -369,57 +348,61 @@ class SydpowerConnector:
         if not self.mqtt_client:
             return {}
 
-        self.mqtt_client.clear_message_cache()
-        self.mqtt_client.data_updated.clear()
-        self._logger.debug(
-            "Poll: cache cleared, sending func 03 to %s",
-            list(self.devices.keys()),
-        )
-
-        for device_mac in self.devices:
-            if not self.mqtt_client:
-                return {}
-            self._send_read_request(device_mac)
-
-        try:
-            await asyncio.wait_for(
-                self.mqtt_client.data_updated.wait(), timeout=5.0
-            )
+        updated = False
+        for func in (3, 4):
+            self.mqtt_client.clear_message_cache()
+            self.mqtt_client.data_updated.clear()
             self._logger.debug(
-                "Poll: first response arrived, waiting 1s for settings..."
+                "Poll: cache cleared, sending func %d to %s",
+                func, list(self.devices.keys()),
             )
-            await asyncio.sleep(1.0)
 
-            if self.mqtt_client.devices:
-                self._last_successful_communication = time.time()
-                for mac, fields in self.mqtt_client.devices.items():
-                    if mac in self.devices:
-                        self.devices[mac].update(fields)
-                    else:
-                        self.devices[mac] = fields
+            for device_mac in self.devices:
+                if not self.mqtt_client:
+                    return {}
+                self._send_read_request(device_mac, func)
 
-                for mac in self.devices:
-                    data = self.devices.get(mac, {})
-                    user_fields = [
-                        k for k in data if not k.startswith("_")
-                    ]
-                    self._logger.debug(
-                        "Poll result %s: %d fields — %s",
-                        mac, len(user_fields), sorted(user_fields),
-                    )
-                return self.devices
+            try:
+                await asyncio.wait_for(
+                    self.mqtt_client.data_updated.wait(), timeout=5.0
+                )
+                self._logger.debug(
+                    f"Poll: first response for func {func} arrived, waiting 1s for settings..."
+                )
+                await asyncio.sleep(1.0)
 
-        except asyncio.TimeoutError:
-            self._logger.debug(
-                "Poll: no response within 5s (device may be offline)"
-            )
-        except Exception as e:
-            self._logger.error("Error during poll: %s", e)
+                if self.mqtt_client.devices:
+                    self._last_successful_communication = time.time()
+                    for mac, fields in self.mqtt_client.devices.items():
+                        if mac in self.devices:
+                            self.devices[mac].update(fields)
+                        else:
+                            self.devices[mac] = fields
 
+                    for mac in self.devices:
+                        data = self.devices.get(mac, {})
+                        user_fields = [
+                            k for k in data if not k.startswith("_")
+                        ]
+                        self._logger.debug(
+                            "Poll result %s: %d fields — %s",
+                            mac, len(user_fields), sorted(user_fields),
+                        )
+                    updated = True
+
+            except asyncio.TimeoutError:
+                self._logger.debug(
+                    "Poll: no response within 5s (device may be offline)"
+                )
+            except Exception as e:
+                self._logger.error("Error during poll: %s", e)
+        
+        if updated:
+            return self.devices
         return {}
 
-    def _send_read_request(self, device_mac: str) -> None:
-        """Send a Modbus read using per-device address and count from API."""
+    def _send_read_request(self, device_mac: str, func: int = 3) -> None:
+        """Send both Modbus func 03 (holding) or func 04 (input) reads using per-device address and count from API."""
         if not self.mqtt_client:
             return
 
@@ -429,12 +412,24 @@ class SydpowerConnector:
         )
         modbus_count = device_info.get("_modbus_count", 80)
 
-        command_bytes = get_read_modbus(modbus_addr, modbus_count)
-        self.mqtt_client.publish_command(device_mac, command_bytes)
-        self._logger.debug(
-            "Sent func 03 to %s (addr=%d, count=%d)",
+        if func == 3:
+            # Send func 03 (holding registers)
+            command_bytes_03 = get_read_modbus(modbus_addr, modbus_count)
+            self.mqtt_client.publish_command(device_mac, command_bytes_03)
+            self._logger.debug(
+                "Sent func 03 to %s (addr=%d, count=%d)",
             device_mac, modbus_addr, modbus_count,
         )
+        elif func == 4:
+            # Send func 04 (input registers)
+            command_bytes_04 = get_read_input_modbus(modbus_addr, modbus_count)
+            self.mqtt_client.publish_command(device_mac, command_bytes_04)
+            self._logger.debug(
+                "Sent func 04 to %s (addr=%d, count=%d)",
+                device_mac, modbus_addr, modbus_count,
+            )
+        else:
+            self._logger.error("Invalid Modbus func: %d", func)
 
     async def run_command(
         self, device_id: str, command: str, value=None
