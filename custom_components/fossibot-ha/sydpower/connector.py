@@ -344,7 +344,7 @@ class SydpowerConnector:
         return {}
 
     async def _poll_devices(self) -> Dict[str, Any]:
-        """Send func 03 read and wait for sensor + settings responses."""
+        """Send func 03 and func 04 reads and wait for settings + sensor responses."""
         if not self.mqtt_client:
             return {}
 
@@ -367,7 +367,8 @@ class SydpowerConnector:
                     self.mqtt_client.data_updated.wait(), timeout=5.0
                 )
                 self._logger.debug(
-                    f"Poll: first response for func {func} arrived, waiting 1s for settings..."
+                    "Poll: first response for func %d arrived, waiting 1s for settings...",
+                    func,
                 )
                 await asyncio.sleep(1.0)
 
@@ -396,13 +397,13 @@ class SydpowerConnector:
                 )
             except Exception as e:
                 self._logger.error("Error during poll: %s", e)
-        
+
         if updated:
             return self.devices
         return {}
 
     def _send_read_request(self, device_mac: str, func: int = 3) -> None:
-        """Send both Modbus func 03 (holding) or func 04 (input) reads using per-device address and count from API."""
+        """Send either Modbus func 03 (holding) or func 04 (input) read using per-device address and count from API."""
         if not self.mqtt_client:
             return
 
@@ -418,8 +419,8 @@ class SydpowerConnector:
             self.mqtt_client.publish_command(device_mac, command_bytes_03)
             self._logger.debug(
                 "Sent func 03 to %s (addr=%d, count=%d)",
-            device_mac, modbus_addr, modbus_count,
-        )
+                device_mac, modbus_addr, modbus_count,
+            )
         elif func == 4:
             # Send func 04 (input registers)
             command_bytes_04 = get_read_input_modbus(modbus_addr, modbus_count)
